@@ -6,7 +6,7 @@ namespace Bishop;
 /// <summary>Minimal JSON API over <see cref="Storage"/>, plus frameless-window controls.</summary>
 public static class Api
 {
-    public static void MapBishopApi(this WebApplication app, Storage storage, Func<BishopWindow?> window)
+    public static void MapBishopApi(this WebApplication app, Storage storage, Transcriber transcriber, ClaudeCli claude, Func<BishopWindow?> window)
     {
         // Map storage exceptions to HTTP status codes.
         app.Use(async (ctx, next) =>
@@ -14,6 +14,10 @@ public static class Api
             try
             {
                 await next(ctx);
+            }
+            catch (ApiProblem ex)
+            {
+                await WriteError(ctx, ex.Status, ex.Message, ex.Code);
             }
             catch (NotFoundException ex)
             {
@@ -101,6 +105,35 @@ public static class Api
             return Results.NoContent();
         });
 
+        // ---- voice: local Whisper transcription + Claude CLI topic drafting
+        api.MapGet("/voice/status", () => VoiceStatus(transcriber, claude));
+        api.MapPost("/voice/model/download", () =>
+        {
+            transcriber.StartDownload();
+            return VoiceStatus(transcriber, claude);
+        });
+
+        // Body: 16 kHz mono 16-bit PCM WAV.
+        api.MapPost("/transcribe", async (HttpContext ctx) =>
+        {
+            var sizeFeature = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+            if (sizeFeature is { IsReadOnly: false }) sizeFeature.MaxRequestBodySize = 200L * 1024 * 1024;
+            using var wav = new MemoryStream();
+            await ctx.Request.Body.CopyToAsync(wav, ctx.RequestAborted);
+            if (wav.Length <= 44) throw new ArgumentException("No audio received");
+            wav.Position = 0;
+            return await transcriber.TranscribeAsync(wav, ctx.RequestAborted);
+        });
+
+        api.MapPost("/projects/{pid:long}/topic-from-transcript", async (long pid, HttpContext ctx) =>
+        {
+            var body = await ReadBody(ctx);
+            var transcript = body.String("transcript")?.Trim();
+            if (string.IsNullOrEmpty(transcript)) throw new ArgumentException("Transcript is empty");
+            var project = storage.GetProject(pid);
+            return await claude.TopicFromTranscriptAsync(project.Name, transcript, ctx.RequestAborted);
+        });
+
         // ---- frameless window controls (no-ops when running --api-only)
         api.MapPost("/window/{action}", async (string action, HttpContext ctx) =>
         {
@@ -112,18 +145,27 @@ public static class Api
                 case "resize": win?.ResizeWindow(body.String("dir") ?? "bottomRight"); break;
                 case "minimize": win?.MinimizeWindow(); break;
                 case "maximize": return Results.Json(new { ok = true, isMaximized = win?.ToggleMaximizeWindow() ?? false });
-                case "close": win?.CloseWindow(); break;
+                case "close":
+                    Log.Info($"Close requested via /api/window/close from {ctx.Request.Headers.UserAgent}");
+                    win?.CloseWindow();
+                    break;
                 default: return Results.NotFound();
             }
             return Results.Json(new { ok = true });
         });
     }
 
-    private static async Task WriteError(HttpContext ctx, int status, string message)
+    private static object VoiceStatus(Transcriber transcriber, ClaudeCli claude)
+    {
+        var claudePath = claude.Resolve();
+        return new { whisper = transcriber.Status(), claude = new { found = claudePath is not null, path = claudePath } };
+    }
+
+    private static async Task WriteError(HttpContext ctx, int status, string message, string? code = null)
     {
         if (ctx.Response.HasStarted) return;
         ctx.Response.StatusCode = status;
-        await ctx.Response.WriteAsJsonAsync(new { error = message });
+        await ctx.Response.WriteAsJsonAsync(new { error = message, code });
     }
 
     private static async Task<Body> ReadBody(HttpContext ctx)

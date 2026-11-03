@@ -1,28 +1,32 @@
-import type { Category, Folder, Project, Task, Topic, Tree } from '../types';
+import type { Category, Folder, Project, Task, Topic, TopicDraft, Transcription, Tree, VoiceStatus } from '../types';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
   }
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const isBlob = body instanceof Blob;
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
       method,
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: body === undefined ? undefined : { 'Content-Type': isBlob ? body.type || 'application/octet-stream' : 'application/json' },
+      body: body === undefined ? undefined : isBlob ? body : JSON.stringify(body),
     });
   } catch {
     throw new ApiError(0, "Can't reach Bishop's local server.");
   }
   if (!res.ok) {
     let message = res.statusText;
+    let code: string | undefined;
     try {
-      message = (await res.json()).error ?? message;
+      const data = await res.json();
+      message = data.error ?? message;
+      code = data.code ?? undefined;
     } catch {}
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -64,6 +68,12 @@ export const api = {
     request<Task>('PATCH', `/projects/${projectId}/tasks/${taskId}`, { completed }),
   deleteTask: (projectId: number, taskId: number) =>
     request<void>('DELETE', `/projects/${projectId}/tasks/${taskId}`),
+
+  voiceStatus: () => request<VoiceStatus>('GET', '/voice/status'),
+  downloadModel: () => request<VoiceStatus>('POST', '/voice/model/download'),
+  transcribe: (wav: Blob) => request<Transcription>('POST', '/transcribe', wav),
+  topicFromTranscript: (projectId: number, transcript: string) =>
+    request<TopicDraft>('POST', `/projects/${projectId}/topic-from-transcript`, { transcript }),
 };
 
 // Frameless window controls; harmless no-ops in the browser dev server.

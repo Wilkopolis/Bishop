@@ -43,3 +43,34 @@ export interface Tree {
   folders: Folder[];
   projects: Project[];
 }
+
+export interface WhisperStatus {
+  model: string;
+  modelPath: string;
+  state: 'missing' | 'downloading' | 'error' | 'ready' | 'loaded';
+  downloadedBytes: number;
+  totalBytes: number | null;
+  error: string | null;
+  backend: string | null;
+  runtimeInfo: string | null;
+}
+
+export interface VoiceStatus {
+  whisper: WhisperStatus;
+  claude: { found: boolean; path: string | null };
+}
+
+export interface Transcription {
+  text: string;
+  backend: string;
+  audioSeconds: number;
+  elapsedMs: number;
+  loadMs: number;
+}
+
+export interface TopicDraft {
+  title: string;
+  description: string;
+  category: Category;
+  tasks: string[];
+}

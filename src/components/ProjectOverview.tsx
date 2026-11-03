@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Mic, Plus } from 'lucide-react';
 import { useBishopStore } from '../store/useBishopStore';
 import { CATEGORIES, type Category, type Topic } from '../types';
 import { CATEGORY_ACCENTS, CATEGORY_LABELS } from './categories';
 import { InlineInput } from './ui';
+import { VoiceTopic } from './VoiceTopic';
 
 export function CategorySelect({ value, onChange, className = '' }: { value: Category; onChange: (c: Category) => void; className?: string }) {
   return (
@@ -103,6 +104,7 @@ function Column({ category, topics }: { category: Category; topics: Topic[] }) {
 export function ProjectOverview() {
   const { projects, selectedProjectId, topics } = useBishopStore();
   const project = projects.find((p) => p.id === selectedProjectId);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   if (!project) {
     return (
@@ -114,7 +116,17 @@ export function ProjectOverview() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-5 gap-4">
-      <h1 className="text-xl font-semibold truncate">{project.name}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold truncate">{project.name}</h1>
+        <button
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:brightness-110"
+          title="Record a voice note and turn it into a topic"
+          onClick={() => setVoiceOpen(true)}
+        >
+          <Mic size={15} /> Voice topic
+        </button>
+      </div>
+      {voiceOpen && <VoiceTopic onClose={() => setVoiceOpen(false)} />}
       <div className="flex-1 grid grid-cols-4 gap-3 min-h-0">
         {CATEGORIES.map((cat) => (
           <Column key={cat} category={cat} topics={topics.filter((t) => t.category === cat).sort(byOrder)} />

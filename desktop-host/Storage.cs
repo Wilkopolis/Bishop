@@ -215,6 +215,12 @@ public class Storage
         return ReadProject(r);
     }
 
+    public ProjectDto GetProject(long id)
+    {
+        using var conn = Open(IndexPath);
+        return GetProject(conn, id);
+    }
+
     public ProjectDto CreateProject(string name, long? folderId)
     {
         name = RequireName(name, "Project name");

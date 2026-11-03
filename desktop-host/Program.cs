@@ -1,6 +1,5 @@
 using System.Net;
 using System.Reflection;
-using System.Text.Json;
 
 namespace Bishop;
 
@@ -10,41 +9,6 @@ public class Program
 
     private const int DesktopPortStart = 45901;
     private const int DevApiPort = 45900;
-
-    private static readonly string AppDataDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Bishop"
-    );
-
-    /// <summary>
-    /// Data root precedence: --data-dir &lt;path&gt;, BISHOP_DATA_DIR, "dataDir" in
-    /// %LOCALAPPDATA%\Bishop\settings.json, else %LOCALAPPDATA%\Bishop.
-    /// </summary>
-    private static string ResolveDataRoot(string[] args)
-    {
-        var idx = Array.IndexOf(args, "--data-dir");
-        if (idx >= 0 && idx + 1 < args.Length) return Path.GetFullPath(args[idx + 1]);
-
-        var env = Environment.GetEnvironmentVariable("BISHOP_DATA_DIR");
-        if (!string.IsNullOrWhiteSpace(env)) return Path.GetFullPath(env);
-
-        try
-        {
-            var settingsPath = Path.Combine(AppDataDir, "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                using var doc = JsonDocument.Parse(File.ReadAllText(settingsPath));
-                if (doc.RootElement.TryGetProperty("dataDir", out var d) && d.ValueKind == JsonValueKind.String &&
-                    !string.IsNullOrWhiteSpace(d.GetString()))
-                {
-                    return Path.GetFullPath(Environment.ExpandEnvironmentVariables(d.GetString()!));
-                }
-            }
-        }
-        catch { }
-
-        return AppDataDir;
-    }
 
     private static int PickPort(int start)
     {
@@ -87,8 +51,14 @@ public class Program
         // --api-only: run just the HTTP API on the fixed dev port (for `npm run dev`).
         bool apiOnly = args.Contains("--api-only");
 
-        Directory.CreateDirectory(AppDataDir);
-        var storage = new Storage(ResolveDataRoot(args));
+        Directory.CreateDirectory(AppSettings.AppDataDir);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Info($"Unhandled exception: {e.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, e) => Log.Info($"Unobserved task exception: {e.Exception}");
+        var settings = AppSettings.Load(args);
+        var storage = new Storage(settings.DataRoot);
+        var transcriber = new Transcriber(settings.WhisperModelName, settings.WhisperModelPath);
+        var claude = new ClaudeCli(settings.ClaudePath, settings.ClaudeModel);
+        Log.Info($"Bishop starting; data={settings.DataRoot}; model={settings.WhisperModelPath}; claude={claude.Resolve() ?? "(not found)"}");
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [] });
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -96,7 +66,7 @@ public class Program
         builder.WebHost.UseKestrel(options => options.Listen(IPAddress.Loopback, port));
 
         var app = builder.Build();
-        app.MapBishopApi(storage, () => MainWindow);
+        app.MapBishopApi(storage, transcriber, claude, () => MainWindow);
 
         // Serve the embedded Vite build (dist/ -> wwwroot/*) with SPA fallback to index.html.
         var asm = Assembly.GetExecutingAssembly();
@@ -137,6 +107,7 @@ public class Program
             return;
         }
 
+        Application.ThreadException += (_, e) => Log.Info($"UI thread exception: {e.Exception}");
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -144,9 +115,10 @@ public class Program
         app.StartAsync().GetAwaiter().GetResult();
         var url = app.Urls.First();
 
-        MainWindow = new BishopWindow(url, AppDataDir);
+        MainWindow = new BishopWindow(url, AppSettings.AppDataDir);
         Application.Run(MainWindow);
 
+        Log.Info("Bishop exiting");
         app.StopAsync().GetAwaiter().GetResult();
     }
 }

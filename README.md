@@ -5,12 +5,17 @@ A local, offline project management app for Windows.
 - **Frontend:** React 19 + TypeScript + Vite 6 + Tailwind 4 + Zustand + lucide-react (`src/`, built to `dist/`)
 - **Desktop host:** .NET 10 WinForms + WebView2 with an embedded ASP.NET minimal API (`desktop-host/`). The Vite build is embedded into `Bishop.exe`.
 - **Storage:** SQLite via Microsoft.Data.Sqlite. One index database for the folder/project tree, one database per project.
+- **Voice topics:** local speech-to-text with [Whisper.net](https://github.com/sandrohanea/whisper.net) (CUDA → Vulkan → CPU), then the Claude Code CLI drafts a topic you review before saving.
 
 ## Prerequisites
 
 - Node.js 20+
 - .NET 10 SDK
 - WebView2 Runtime (ships with Windows 11)
+- For voice topics:
+  - [Claude Code CLI](https://docs.claude.com/en/docs/claude-code), signed in (`npm install -g @anthropic-ai/claude-code`, then run `claude` once)
+  - Microphone access for desktop apps (Windows Settings > Privacy & security > Microphone)
+  - Optional: NVIDIA CUDA 13 Toolkit (provides `cublas64_13.dll`) for the CUDA backend. Without it Bishop uses the Vulkan GPU backend, which only needs the graphics driver.
 
 ## Build & run
 
@@ -33,17 +38,24 @@ npm run dev       :: Vite on http://localhost:5173, proxies /api -> 45900
 
 Window-control endpoints are no-ops in `--api-only` mode.
 
-## Data location
+## Data location & settings
 
-Default data root is `%LOCALAPPDATA%\Bishop\`. Override (highest priority first):
+Default data root is `%LOCALAPPDATA%\Bishop\`. Settings resolve from a command-line flag, then an environment variable, then `%LOCALAPPDATA%\Bishop\settings.json`:
 
-1. `Bishop.exe --data-dir <path>`
-2. `BISHOP_DATA_DIR` environment variable
-3. `"dataDir"` in `%LOCALAPPDATA%\Bishop\settings.json`
+| setting | flag | env var | settings.json key | default |
+|---------|------|---------|-------------------|---------|
+| data root | `--data-dir` | `BISHOP_DATA_DIR` | `dataDir` | `%LOCALAPPDATA%\Bishop` |
+| Whisper model file | `--whisper-model` | `BISHOP_WHISPER_MODEL` | `whisperModelPath` | `<data root>\models\ggml-<model>.bin` |
+| Whisper model name | | | `whisperModel` | `large-v3-turbo` |
+| Claude CLI | `--claude` | `BISHOP_CLAUDE_PATH` | `claudePath` | PATH, `~\.localin`, then the Claude desktop app's bundled copy |
+| Claude model | | | `claudeModel` | CLI default |
+
+The Whisper model (~1.6 GB) is downloaded from Hugging Face (`ggerganov/whisper.cpp`) the first time you open **Voice topic**, with progress shown in the dialog. Logs go to `%LOCALAPPDATA%\Bishopishop.log` (including which Whisper backend loaded).
 
 ```
 <data root>\
   index.db              folders + projects tree
+  models\               Whisper model files (never in the repo)
   projects\<guid>.db    one database per project (topics + tasks)
   trash\                deleted project databases (moved, not destroyed)
 ```
@@ -89,5 +101,9 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | POST   | `/api/projects/{pid}/topics/{tid}/tasks` | `{ title }` |
 | PATCH  | `/api/projects/{pid}/tasks/{taskId}` | `{ title?, completed?, sortOrder? }` |
 | DELETE | `/api/projects/{pid}/tasks/{taskId}` | |
+| GET    | `/api/voice/status` | Whisper model state/download progress/backend, Claude CLI path |
+| POST   | `/api/voice/model/download` | starts the model download |
+| POST   | `/api/transcribe` | body: 16 kHz mono 16-bit WAV → `{ text, backend, audioSeconds, elapsedMs, loadMs }` |
+| POST   | `/api/projects/{pid}/topic-from-transcript` | `{ transcript }` → `{ title, description, category, tasks }` (draft only; nothing saved) |
 | POST   | `/api/window/{drag\|resize\|minimize\|maximize\|close}` | frameless window controls |
 | GET    | `/api/health` | `{ ok, dataRoot }` |

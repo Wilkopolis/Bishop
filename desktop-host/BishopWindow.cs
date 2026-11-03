@@ -100,7 +100,11 @@ public class BishopWindow : Form
         Controls.Add(_webView);
 
         Load += async (_, _) => await InitWebViewAsync();
-        FormClosing += (_, _) => SaveWindowBounds();
+        FormClosing += (_, e) =>
+        {
+            Log.Info($"Window closing: {e.CloseReason}");
+            SaveWindowBounds();
+        };
     }
 
     private void RestoreWindowBounds()
@@ -170,6 +174,17 @@ public class BishopWindow : Form
                 if (!args.Uri.StartsWith(_appUrl, StringComparison.OrdinalIgnoreCase))
                 {
                     args.Cancel = true;
+                }
+            };
+
+            // Allow the app's own page to use the microphone (voice-to-topic); deny everything else.
+            _webView.CoreWebView2.PermissionRequested += (_, args) =>
+            {
+                if (args.PermissionKind == CoreWebView2PermissionKind.Microphone &&
+                    args.Uri.StartsWith(_appUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    args.State = CoreWebView2PermissionState.Allow;
+                    args.SavesInProfile = true;
                 }
             };
 

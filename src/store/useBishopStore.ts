@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
-import type { Category, Folder, Project, Task, Topic } from '../types';
+import type { Category, Folder, Project, Task, Topic, TopicDraft } from '../types';
 
 export interface Toast {
   id: number;
@@ -31,6 +31,7 @@ interface BishopState {
   createTopic: (title: string, category: Category) => Promise<void>;
   updateTopic: (id: number, patch: { title?: string; description?: string; category?: Category }) => Promise<void>;
   deleteTopic: (id: number) => Promise<void>;
+  saveTopicDraft: (draft: TopicDraft) => Promise<boolean>;
   openTopic: (id: number | null) => void;
 
   addTask: (topicId: number, title: string) => Promise<void>;
@@ -236,6 +237,30 @@ export const useBishopStore = create<BishopState>((set, get) => {
         (s) => ({ topics: s.topics.filter((t) => t.id !== id), openTopicId: s.openTopicId === id ? null : s.openTopicId }),
         () => api.deleteTopic(pid, id),
       );
+    },
+
+    // Not optimistic: the review dialog stays open (with its edits) until this succeeds.
+    saveTopicDraft: async (draft) => {
+      const pid = projectId();
+      let topic: Topic;
+      try {
+        topic = await api.createTopic(pid, { title: draft.title, description: draft.description, category: draft.category });
+      } catch (e) {
+        get().pushError(e);
+        return false;
+      }
+      const tasks: Task[] = [];
+      let failed = 0;
+      for (const title of draft.tasks) {
+        try {
+          tasks.push(await api.addTask(pid, topic.id, title));
+        } catch {
+          failed++;
+        }
+      }
+      if (get().selectedProjectId === pid) set((s) => ({ topics: [...s.topics, { ...topic, tasks }] }));
+      if (failed) get().pushError(new Error(`Topic saved, but ${failed} task(s) couldn't be added.`));
+      return true;
     },
 
     openTopic: (id) => set({ openTopicId: id }),
