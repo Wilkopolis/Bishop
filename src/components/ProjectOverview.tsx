@@ -351,6 +351,16 @@ function ProjectTagline({ project }: { project: Project }) {
   );
 }
 
+// The picture dissolves into the page on every side: a strong fade on the left (toward the
+// text), softer fades top, bottom and right. The two gradients are intersected.
+const pictureFadeMask: CSSProperties = (() => {
+  const image = [
+    'linear-gradient(to right, transparent 0%, #000 42%, #000 86%, transparent 100%)',
+    'linear-gradient(to bottom, transparent 0%, #000 22%, #000 70%, transparent 100%)',
+  ].join(', ');
+  return { maskImage: image, WebkitMaskImage: image, maskComposite: 'intersect', WebkitMaskComposite: 'source-in' };
+})();
+
 const overlayButton =
   'flex items-center gap-1.5 px-2.5 py-1 text-xs rounded bg-black/70 text-white border border-white/15 hover:bg-[var(--primary)] hover:border-[var(--primary)]';
 
@@ -360,10 +370,10 @@ function ProjectPicture({ project, onFile, dragOver }: { project: Project; onFil
   const input = useRef<HTMLInputElement>(null);
   const uploading = uploadingImage.includes(project.id);
   const pick = () => input.current?.click();
-  const box = 'relative w-full sm:w-72 h-44 shrink-0 rounded-md overflow-hidden';
+  const box = 'relative w-full sm:w-80 h-48 shrink-0';
   const spinner = uploading && (
-    <div className="absolute inset-0 grid place-items-center bg-black/50 text-white">
-      <Loader2 size={22} className="animate-spin" />
+    <div className="absolute inset-0 grid place-items-center text-[var(--primary-text)]">
+      <Loader2 size={24} className="animate-spin" />
     </div>
   );
 
@@ -382,9 +392,16 @@ function ProjectPicture({ project, onFile, dragOver }: { project: Project; onFil
         }}
       />
       {project.imageVersion ? (
-        <div data-testid="project-picture" className={`group/pic ${box} border border-[var(--border)] bg-[var(--card)]`}>
-          <img src={api.projectImageUrl(project.id, project.imageVersion)} alt={`${project.name} picture`} draggable={false} className="w-full h-full object-cover" />
-          <div className="absolute inset-0 flex items-end justify-end gap-2 p-2 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover/pic:opacity-100 focus-within:opacity-100 transition-opacity">
+        <div data-testid="project-picture" className={`group/pic ${box}`}>
+          <img
+            src={api.projectImageUrl(project.id, project.imageVersion)}
+            alt={`${project.name} picture`}
+            draggable={false}
+            className={`w-full h-full object-cover transition-opacity ${uploading ? 'opacity-40' : ''}`}
+            style={pictureFadeMask}
+          />
+          {/* Controls sit outside the mask so they stay crisp. */}
+          <div className="absolute inset-0 flex items-end justify-end gap-2 p-3 opacity-0 group-hover/pic:opacity-100 focus-within:opacity-100 transition-opacity">
             <button className={overlayButton} onClick={pick}>
               <UploadSimple size={13} /> Replace
             </button>
@@ -404,7 +421,7 @@ function ProjectPicture({ project, onFile, dragOver }: { project: Project; onFil
         <button
           data-testid="project-picture-add"
           onClick={pick}
-          className={`${box} border-2 border-dashed flex flex-col items-center justify-center gap-1.5 text-xs transition ${
+          className={`${box} rounded-md border-2 border-dashed flex flex-col items-center justify-center gap-1.5 text-xs transition ${
             dragOver || uploading
               ? 'opacity-100 border-[var(--primary)] text-[var(--foreground)] bg-[var(--primary-subtle)]'
               : 'opacity-0 group-hover/overview:opacity-100 focus-visible:opacity-100 border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
@@ -449,9 +466,11 @@ function OverviewPanel({ project, topics, onVoice }: { project: Project; topics:
     <section
       data-testid="overview"
       aria-label="Project overview"
-      className={`group/overview flex flex-wrap-reverse gap-5 rounded-lg border bg-[var(--sidebar)] p-4 transition-colors ${
-        dragOver ? 'border-[var(--primary)]' : 'border-[var(--border)]'
-      }`}
+      // No container: a soft wash from the top fades into the page, edge to edge.
+      className="group/overview -mx-5 -mt-5 px-6 pt-6 pb-2 flex flex-wrap-reverse items-center gap-6"
+      style={{
+        backgroundImage: `linear-gradient(to bottom, ${dragOver ? 'var(--primary-subtle)' : 'var(--sidebar)'} 0%, transparent 100%)`,
+      }}
       onDragOver={(e) => {
         if (!hasFiles(e)) return;
         e.preventDefault();
