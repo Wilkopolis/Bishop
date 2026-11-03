@@ -1,4 +1,4 @@
-import type { BackupInfo, Category, Folder, Project, SearchHit, Task, Topic, TopicDraft, Transcription, Tree, VoiceStatus } from '../types';
+import type { AgentsFile, BackupInfo, Category, Folder, FolderStatus, Project, SearchHit, Task, Topic, TopicDraft, Transcription, Tree, VoiceStatus } from '../types';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -41,9 +41,9 @@ export const api = {
     request<Folder>('PATCH', `/folders/${id}`, patch),
   deleteFolder: (id: number) => request<void>('DELETE', `/folders/${id}`),
 
-  createProject: (name: string, folderId: number | null = null) =>
-    request<Project>('POST', '/projects', { name, folderId }),
-  updateProject: (id: number, patch: { name?: string; folderId?: number | null; tagline?: string | null }) =>
+  createProject: (name: string, folderPath: string, folderId: number | null = null) =>
+    request<Project>('POST', '/projects', { name, folderPath, folderId }),
+  updateProject: (id: number, patch: { name?: string; folderId?: number | null; tagline?: string | null; folderPath?: string }) =>
     request<Project>('PATCH', `/projects/${id}`, patch),
   deleteProject: (id: number) => request<void>('DELETE', `/projects/${id}`),
   projectImageUrl: (id: number, version: string) => `/api/projects/${id}/image?v=${encodeURIComponent(version)}`,
@@ -77,6 +77,14 @@ export const api = {
     request<Task[]>('POST', `/projects/${projectId}/topics/${topicId}/tasks/reorder`, { taskIds }),
   deleteTask: (projectId: number, taskId: number) =>
     request<void>('DELETE', `/projects/${projectId}/tasks/${taskId}`),
+
+  suggestFolder: (name: string) => request<{ root: string; path: string }>('GET', `/project-folders/suggest?name=${encodeURIComponent(name)}`),
+  folderStatus: (path: string) => request<FolderStatus>('GET', `/project-folders/status?path=${encodeURIComponent(path)}`),
+  pickFolder: (initial?: string, title?: string) => request<{ path: string | null }>('POST', '/system/pick-folder', { initial, title }),
+  openProjectFolder: (id: number) => request<{ ok: boolean }>('POST', `/projects/${id}/open-folder`),
+  getAgents: (id: number) => request<AgentsFile>('GET', `/projects/${id}/agents`),
+  saveAgents: (id: number, content: string, baseHash: string, force = false) =>
+    request<AgentsFile>('PUT', `/projects/${id}/agents`, { content, baseHash, force }),
 
   search: (q: string) => request<SearchHit[]>('GET', `/search?q=${encodeURIComponent(q)}`),
 

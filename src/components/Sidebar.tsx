@@ -47,7 +47,7 @@ function folderPath(folders: Folder[], id: number): string {
 
 function DraftRow({ depth }: { depth: number }) {
   const { draft, setDraft } = useContext(Ctx);
-  const { createProject, createFolder } = useBishopStore();
+  const { createFolder } = useBishopStore();
   if (!draft) return null;
   return (
     <div className="py-0.5 pr-2" style={indent(depth)}>
@@ -55,8 +55,7 @@ function DraftRow({ depth }: { depth: number }) {
         placeholder={draft.kind === 'project' ? 'Project name' : 'Folder name'}
         onCommit={(name) => {
           setDraft(null);
-          if (draft.kind === 'project') createProject(name, draft.parentId);
-          else createFolder(name, draft.parentId);
+          createFolder(name, draft.parentId);
         }}
         onCancel={() => setDraft(null)}
       />
@@ -65,7 +64,8 @@ function DraftRow({ depth }: { depth: number }) {
 }
 
 function ProjectRow({ project, depth }: { project: Project; depth: number }) {
-  const { selectedProjectId, selectProject, renameProject, moveProject, deleteProject, folders, confirm, setEditingTagline } = useBishopStore();
+  const { selectedProjectId, selectProject, renameProject, moveProject, deleteProject, folders, confirm, setEditingTagline, setFolderDialogFor, pushError } =
+    useBishopStore();
   const { editing, setEditing, openMenu } = useContext(Ctx);
   const selected = selectedProjectId === project.id;
   const drag = useDraggable({ id: `p${project.id}` });
@@ -88,6 +88,10 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
         setEditingTagline(true);
       },
     },
+    { label: project.folderPath ? 'Change folder…' : 'Choose folder…', onSelect: () => setFolderDialogFor(project.id) },
+    ...(project.folderPath && !project.folderMissing
+      ? [{ label: 'Open folder', onSelect: () => api.openProjectFolder(project.id).catch(pushError) }]
+      : []),
     {
       label: 'Move to',
       children: [
@@ -102,7 +106,8 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
       label: 'Delete',
       danger: true,
       onSelect: async () => {
-        if (await confirm({ title: 'Delete project?', message: `"${project.name}" will be removed. Its data file is kept in the trash folder.` }))
+        const folderNote = project.folderPath ? ` Its folder on disk (${project.folderPath}) is not touched.` : '';
+        if (await confirm({ title: 'Delete project?', message: `"${project.name}" will be removed from Bishop. Its Bishop data file is kept in the trash folder.${folderNote}` }))
           deleteProject(project.id);
       },
     },
@@ -144,12 +149,12 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
 }
 
 function FolderNode({ folder, depth }: { folder: Folder; depth: number }) {
-  const { folders, projects, renameFolder, deleteFolder, confirm } = useBishopStore();
+  const { folders, projects, renameFolder, deleteFolder, confirm, setNewProjectDialog } = useBishopStore();
   const { editing, setEditing, draft, setDraft, openMenu } = useContext(Ctx);
   const drop = useDroppable({ id: `f${folder.id}` });
 
   const menu: MenuItem[] = [
-    { label: 'New project here', onSelect: () => setDraft({ kind: 'project', parentId: folder.id }) },
+    { label: 'New project here', onSelect: () => setNewProjectDialog({ folderId: folder.id }) },
     { label: 'New subfolder', onSelect: () => setDraft({ kind: 'folder', parentId: folder.id }) },
     { label: 'Rename', onSelect: () => setEditing({ kind: 'folder', id: folder.id }) },
     {
@@ -225,7 +230,7 @@ const collision: CollisionDetection = (args) => {
 };
 
 export function Sidebar() {
-  const { folders, projects, loading, placeProject, setSearchOpen, pushError, pushInfo } = useBishopStore();
+  const { folders, projects, loading, placeProject, setSearchOpen, pushError, pushInfo, setNewProjectDialog } = useBishopStore();
   const [editing, setEditing] = useState<Ref | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -295,7 +300,7 @@ export function Sidebar() {
             <button className="p-1 rounded hover:bg-[var(--card)]" title="New folder" onClick={() => setDraft({ kind: 'folder', parentId: null })}>
               <FolderPlus size={15} />
             </button>
-            <button className="p-1 rounded hover:bg-[var(--card)]" title="New project" onClick={() => setDraft({ kind: 'project', parentId: null })}>
+            <button className="p-1 rounded hover:bg-[var(--card)]" title="New project" onClick={() => setNewProjectDialog({ folderId: null })}>
               <Plus size={15} />
             </button>
             <button className="p-1 rounded hover:bg-[var(--card)]" title="Settings & backups" onClick={openSettings}>
@@ -327,7 +332,7 @@ export function Sidebar() {
             {!loading && folders.length === 0 && projects.length === 0 && !draft && (
               <button
                 className="w-full mt-4 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                onClick={() => setDraft({ kind: 'project', parentId: null })}
+                onClick={() => setNewProjectDialog({ folderId: null })}
               >
                 + New project
               </button>

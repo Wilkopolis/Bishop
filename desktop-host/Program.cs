@@ -68,7 +68,7 @@ public class Program
         builder.WebHost.UseKestrel(options => options.Listen(IPAddress.Loopback, port));
 
         var app = builder.Build();
-        app.MapBishopApi(storage, backups, transcriber, claude, () => MainWindow);
+        app.MapBishopApi(storage, backups, transcriber, claude, settings, () => MainWindow);
 
         // Serve the embedded Vite build (dist/ -> wwwroot/*) with SPA fallback to index.html.
         var asm = Assembly.GetExecutingAssembly();

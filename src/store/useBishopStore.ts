@@ -34,7 +34,17 @@ interface BishopState {
   renameFolder: (id: number, name: string) => Promise<void>;
   deleteFolder: (id: number) => Promise<void>;
 
-  createProject: (name: string, folderId?: number | null) => Promise<void>;
+  /** Creates a project with its working folder. Resolves false (and leaves the dialog open) on error. */
+  createProject: (name: string, folderPath: string, folderId?: number | null) => Promise<boolean>;
+  /** Links (or relinks) a project's working folder. Files are never moved. */
+  linkProjectFolder: (id: number, folderPath: string) => Promise<boolean>;
+  /** Dialogs: new project (with the sidebar folder it goes in), change folder, AGENTS.md editor. */
+  newProjectDialog: { folderId: number | null } | null;
+  setNewProjectDialog: (d: { folderId: number | null } | null) => void;
+  folderDialogFor: number | null;
+  setFolderDialogFor: (id: number | null) => void;
+  agentsEditorFor: number | null;
+  setAgentsEditorFor: (id: number | null) => void;
   renameProject: (id: number, name: string) => Promise<void>;
   setProjectTagline: (id: number, tagline: string | null) => Promise<void>;
   /** Uploads (or replaces) a project's picture. The returned promise settles when done. */
@@ -146,6 +156,12 @@ export const useBishopStore = create<BishopState>((set, get) => {
     toasts: [],
     confirmRequest: null,
     editingTagline: false,
+    newProjectDialog: null,
+    setNewProjectDialog: (d) => set({ newProjectDialog: d }),
+    folderDialogFor: null,
+    setFolderDialogFor: (id) => set({ folderDialogFor: id }),
+    agentsEditorFor: null,
+    setAgentsEditorFor: (id) => set({ agentsEditorFor: id }),
     uploadingImage: [],
     setEditingTagline: (editing) => set({ editingTagline: editing }),
     searchOpen: false,
@@ -200,13 +216,26 @@ export const useBishopStore = create<BishopState>((set, get) => {
 
     // --------------------------------------------------------- projects
 
-    createProject: async (name, folderId = null) => {
+    createProject: async (name, folderPath, folderId = null) => {
       try {
-        const project = await api.createProject(name, folderId);
+        const project = await api.createProject(name, folderPath, folderId);
         set((s) => ({ projects: [...s.projects, project] }));
         await get().selectProject(project.id);
+        return true;
       } catch (e) {
         get().pushError(e);
+        return false;
+      }
+    },
+
+    linkProjectFolder: async (id, folderPath) => {
+      try {
+        const project = await api.updateProject(id, { folderPath });
+        set((s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }));
+        return true;
+      } catch (e) {
+        get().pushError(e);
+        return false;
       }
     },
 

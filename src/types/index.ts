@@ -20,6 +20,25 @@ export interface Project {
   tagline: string | null;
   /** Set when the project has a picture; changes whenever the picture does (cache key). */
   imageVersion: string | null;
+  /** The project's working folder on disk (holds AGENTS.md). Null for projects created before folders existed. */
+  folderPath: string | null;
+  /** folderPath is set but the folder no longer exists. */
+  folderMissing: boolean;
+}
+
+export interface FolderStatus {
+  path: string;
+  exists: boolean;
+  hasAgents: boolean;
+  isFile: boolean;
+}
+
+export interface AgentsFile {
+  path: string;
+  exists: boolean;
+  content: string;
+  /** Hash of the file as loaded; sent back on save to detect changes made outside Bishop. */
+  hash: string;
 }
 
 export const MAX_TAGLINE_LENGTH = 200;

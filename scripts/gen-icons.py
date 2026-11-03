@@ -16,7 +16,9 @@ ICONS = {
     'Copy': ('copy-simple', 'bold'),
     'Download': ('download-simple', 'bold'),
     'FileAudio': ('file-audio', 'bold'),
+    'FileText': ('file-text', 'bold'),
     'Folder': ('folder', 'bold'),
+    'FolderOpen': ('folder-open', 'bold'),
     'FolderPlus': ('folder-plus', 'bold'),
     'GripVertical': ('dots-six-vertical', 'bold'),
     'ImageIcon': ('image', 'bold'),
@@ -33,6 +35,7 @@ ICONS = {
     'Stop': ('stop', 'fill'),
     'Trash2': ('trash', 'bold'),
     'UploadSimple': ('upload-simple', 'bold'),
+    'WarningCircle': ('warning-circle', 'bold'),
     'X': ('x', 'bold'),
 }
 

@@ -321,6 +321,35 @@ public class BishopWindow : Form
         return WindowState == FormWindowState.Maximized;
     }
 
+    /// <summary>Shows the native folder picker (modal to this window). Returns null if cancelled.</summary>
+    public string? PickFolder(string? initial, string? title)
+    {
+        if (InvokeRequired)
+        {
+            return (string?)Invoke(new Func<string?>(() => PickFolder(initial, title)));
+        }
+        return ShowFolderDialog(this, initial, title);
+    }
+
+    public static string? ShowFolderDialog(IWin32Window? owner, string? initial, string? title)
+    {
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = title ?? "Choose the project folder",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+        };
+        if (!string.IsNullOrWhiteSpace(initial))
+        {
+            // Start in the nearest existing ancestor of the suggested path.
+            var dir = initial;
+            while (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) dir = Path.GetDirectoryName(dir);
+            if (!string.IsNullOrEmpty(dir)) dialog.InitialDirectory = dir;
+        }
+        var result = owner is null ? dialog.ShowDialog() : dialog.ShowDialog(owner);
+        return result == DialogResult.OK ? dialog.SelectedPath : null;
+    }
+
     public void CloseWindow()
     {
         if (InvokeRequired)

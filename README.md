@@ -37,6 +37,7 @@ Produces a self-contained win-x64 folder in `release\publish\Bishop-<version>-wi
 
 ## Using Bishop
 
+- **Project folder & AGENTS.md:** every project is linked to a folder on disk (its code repo, or one Bishop creates under `Documents\Bishop\<name>`). Bishop adds an `AGENTS.md` there if there isn't one (it never overwrites or deletes anything in the folder). The overview shows the path with *Open folder* and *Edit AGENTS.md*; the sidebar menu has *Change folder…* (relinks, no files move). Projects created before folders existed, or whose folder was moved, show a banner to pick one. Voice topic runs Claude in this folder, so Claude Code reads `AGENTS.md` (verified with Claude Code 2.1.317, which reads `AGENTS.md` natively, so Bishop doesn't add a `CLAUDE.md`). Deleting a project in Bishop never touches its folder.
 - **Project overview:** the panel at the top shows the title and tagline (click either to edit the tagline), topic counts per category, task progress, and an optional picture. Add a picture by clicking the dashed box (it appears on hover), dropping an image file onto the panel, or pasting one; hover the picture to replace or remove it. Pictures are downscaled to 1600 px before upload.
 - **Projects & folders:** right-click (or the `…` button) for rename / move / delete; double-click to rename. Drag projects onto a folder, onto another project (to go above it), or onto the empty area at the bottom to move them out of a folder.
 - **Topics:** the Right now / Soon / Later / Backlog sections are stacked top to bottom; each wraps its cards in a grid and can be collapsed (remembered per project). Drag a card within a section to reorder it, or into another section: an orange bar shows exactly where it will land (empty sections and collapsed headers take it at the end). Keyboard: focus a card, Space to pick up, arrow keys to move (Up/Down step between sections), Space to drop, Esc to cancel; Enter opens the card.
@@ -86,6 +87,7 @@ Default data root is `%LOCALAPPDATA%\Bishop\`. Settings resolve from a command-l
 | Whisper model name | | | `whisperModel` | `large-v3-turbo` |
 | Claude CLI | `--claude` | `BISHOP_CLAUDE_PATH` | `claudePath` | PATH, `~\.local\bin`, then the Claude desktop app's bundled copy |
 | Claude model | | | `claudeModel` | CLI default |
+| New-project folder root | `--projects-root` | `BISHOP_PROJECTS_ROOT` | `projectsRoot` | `Documents\Bishop` (suggested folder = root\project name) |
 
 The Whisper model (~1.6 GB) is downloaded from Hugging Face (`ggerganov/whisper.cpp`) the first time you open **Voice topic**, with progress shown in the dialog. Logs go to `%LOCALAPPDATA%\Bishop\bishop.log` (including which Whisper backend loaded).
 
@@ -107,7 +109,7 @@ Window state (`window.json`) and the WebView2 profile always live in `%LOCALAPPD
 | table    | columns |
 |----------|---------|
 | folders  | id, name, parent_id → folders, sort_order, created_at |
-| projects | id, name, folder_id → folders, file_name, sort_order, created_at, updated_at, tagline (nullable, ≤200 chars; schema v2), image_version (nullable; set when the project has a picture, used as a cache key; schema v3) |
+| projects | id, name, folder_id → folders, file_name, sort_order, created_at, updated_at, tagline (nullable, ≤200 chars; schema v2), image_version (nullable; set when the project has a picture, used as a cache key; schema v3), folder_path (the project's working folder on disk; NULL for projects from before v4) |
 
 **projects/&lt;guid&gt;.db**
 
@@ -129,8 +131,14 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | POST   | `/api/folders` | `{ name, parentId? }` |
 | PATCH  | `/api/folders/{id}` | `{ name?, parentId? }` (`parentId: null` moves to root) |
 | DELETE | `/api/folders/{id}` | children move up to the parent folder |
-| POST   | `/api/projects` | `{ name, folderId?, tagline? }` |
-| PATCH  | `/api/projects/{id}` | `{ name?, folderId?, tagline? }` (tagline: trimmed, blank or `null` clears, >200 chars → 400) |
+| POST   | `/api/projects` | `{ name, folderPath, folderId?, tagline? }`: folderPath is required (absolute); the folder is created if missing and gets an AGENTS.md if it has none |
+| PATCH  | `/api/projects/{id}` | `{ name?, folderId?, tagline?, folderPath? }` (tagline: trimmed, blank or `null` clears, >200 chars → 400; folderPath relinks, no files move) |
+| GET    | `/api/project-folders/suggest?name=` | `{ root, path }` default folder for a new project |
+| GET    | `/api/project-folders/status?path=` | `{ path, exists, hasAgents, isFile }` |
+| POST   | `/api/system/pick-folder` | `{ initial?, title? }` → native folder picker → `{ path \| null }` |
+| POST   | `/api/projects/{id}/open-folder` | opens the project folder in Explorer |
+| GET    | `/api/projects/{id}/agents` | `{ path, exists, content, hash }` |
+| PUT    | `/api/projects/{id}/agents` | `{ content, baseHash, force? }`: 409 `changed_on_disk` if the file changed since it was loaded |
 | POST   | `/api/projects/reorder` | `{ folderId, projectIds }`: puts these projects, in order, into a folder (null = root) |
 | DELETE | `/api/projects/{id}` | project db moved to `trash\` |
 | GET    | `/api/projects/{id}/image?v=` | the project picture (immutable cache per `imageVersion`) |

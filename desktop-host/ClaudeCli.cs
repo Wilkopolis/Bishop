@@ -29,6 +29,11 @@ public sealed class ClaudeCli(string? configuredPath, string? model)
           LATER = planned but not soon; BACKLOG = someday, ideas, or unclear timing.
         - tasks: 0-12 short imperative action items that the note states or clearly implies. Don't invent extra work.
         - Write in the same language as the transcript.
+        - The input may list the project's existing topics by category. Don't duplicate one: if the note is
+          about an existing topic, give the new topic a clearly different title and mention the related
+          existing topic in the description.
+        - If you were given project instructions (for example from AGENTS.md), follow them, but always answer
+          with the JSON object above and nothing else.
         """;
 
     /// <summary>Finds the CLI: configured path, PATH, ~/.local/bin, then the desktop app's bundled copy.</summary>
@@ -72,18 +77,28 @@ public sealed class ClaudeCli(string? configuredPath, string? model)
         return null;
     }
 
-    public async Task<TopicDraft> TopicFromTranscriptAsync(string projectName, string transcript, CancellationToken ct)
+    /// <param name="projectFolder">The project's folder; Claude runs there so it reads AGENTS.md. Null runs in a temp folder.</param>
+    /// <param name="existingTopics">Existing topic titles by category, so Claude can avoid duplicates.</param>
+    public async Task<TopicDraft> TopicFromTranscriptAsync(
+        string projectName,
+        string? tagline,
+        IReadOnlyDictionary<string, List<string>> existingTopics,
+        string transcript,
+        string? projectFolder,
+        CancellationToken ct)
     {
         var exe = Resolve() ?? throw new ApiProblem(503, "claude_missing",
             "Claude CLI not found. Install it with `npm install -g @anthropic-ai/claude-code`, or set \"claudePath\" in settings.json.");
 
-        var workDir = Path.Combine(Path.GetTempPath(), "Bishop-claude");
-        Directory.CreateDirectory(workDir);
+        // Bishop's own files (the prompt) stay in temp; nothing is written to the project folder.
+        var tempDir = Path.Combine(Path.GetTempPath(), "Bishop-claude");
+        Directory.CreateDirectory(tempDir);
+        var workDir = projectFolder ?? tempDir;
 
         var psi = new ProcessStartInfo
         {
             FileName = exe,
-            WorkingDirectory = workDir, // keep it away from any repo CLAUDE.md
+            WorkingDirectory = workDir, // Claude Code picks up AGENTS.md / CLAUDE.md from here
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -101,7 +116,7 @@ public sealed class ClaudeCli(string? configuredPath, string? model)
         }
         // Instructions go in a file: a .cmd shim runs through cmd.exe, which would mangle
         // multi-line text with quotes and pipes on the command line.
-        var promptFile = Path.Combine(workDir, "topic-from-transcript.txt");
+        var promptFile = Path.Combine(tempDir, "topic-from-transcript.txt");
         await File.WriteAllTextAsync(promptFile, Instructions, ct);
         foreach (var arg in new[]
                  {
@@ -123,7 +138,7 @@ public sealed class ClaudeCli(string? configuredPath, string? model)
         using var proc = Process.Start(psi) ?? throw new ApiProblem(500, "claude_failed", "Couldn't start the Claude CLI.");
         var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
         var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-        await proc.StandardInput.WriteAsync($"Project: {projectName}\n\nTranscript:\n{transcript}\n");
+        await proc.StandardInput.WriteAsync(BuildInput(projectName, tagline, existingTopics, transcript));
         proc.StandardInput.Close();
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -143,6 +158,22 @@ public sealed class ClaudeCli(string? configuredPath, string? model)
         var stderr = await stderrTask;
         Log.Info($"claude -p finished in {sw.ElapsedMilliseconds}ms, exit {proc.ExitCode}");
         return ParseResult(stdout, stderr, proc.ExitCode);
+    }
+
+    internal static string BuildInput(string projectName, string? tagline, IReadOnlyDictionary<string, List<string>> existingTopics, string transcript)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Project: ").Append(projectName).Append('\n');
+        if (!string.IsNullOrWhiteSpace(tagline)) sb.Append("Tagline: ").Append(tagline).Append('\n');
+        var any = existingTopics.Values.Any(v => v.Count > 0);
+        sb.Append("\nExisting topics:").Append(any ? "\n" : " (none)\n");
+        foreach (var category in Storage.Categories)
+        {
+            if (existingTopics.TryGetValue(category, out var titles) && titles.Count > 0)
+                sb.Append("- ").Append(category).Append(": ").Append(string.Join("; ", titles.Take(60))).Append('\n');
+        }
+        sb.Append("\nTranscript:\n").Append(transcript).Append('\n');
+        return sb.ToString();
     }
 
     internal static TopicDraft ParseResult(string stdout, string stderr, int exitCode)

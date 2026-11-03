@@ -28,6 +28,7 @@ import { CATEGORY_DOTS, CATEGORY_LABELS } from './categories';
 import { InlineInput } from './ui';
 import { VoiceTopic } from './VoiceTopic';
 import { BishopLogo } from './BishopLogo';
+import { FolderBanner, FolderLine } from './ProjectFolder';
 
 type Columns = Record<Category, number[]>;
 
@@ -608,6 +609,8 @@ function OverviewPanel({ project, topics, onVoice }: { project: Project; topics:
           </span>
         </div>
 
+        <FolderLine project={project} />
+
         <div className="mt-auto pt-1">
           <button
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]"
@@ -641,6 +644,7 @@ export function ProjectOverview() {
     // The whole page scrolls: the faded overview first, then the stacked category sections.
     <div className="flex-1 flex flex-col overflow-y-auto p-5 gap-4" data-testid="project-page">
       <OverviewPanel project={project} topics={topics} onVoice={() => setVoiceOpen(true)} />
+      {(!project.folderPath || project.folderMissing) && <FolderBanner project={project} />}
       {voiceOpen && <VoiceTopic onClose={() => setVoiceOpen(false)} />}
       <Board topics={topics} projectId={project.id} />
     </div>

@@ -12,6 +12,7 @@ namespace Bishop;
 ///   model name       -                 -                      "whisperModel"      (default large-v3-turbo)
 ///   claude CLI       --claude          BISHOP_CLAUDE_PATH     "claudePath"
 ///   claude model     -                 -                      "claudeModel"
+///   projects root    --projects-root   BISHOP_PROJECTS_ROOT   "projectsRoot"      (default Documents\Bishop; where new project folders are suggested)
 /// </summary>
 public sealed class AppSettings
 {
@@ -25,6 +26,7 @@ public sealed class AppSettings
     public required string WhisperModelPath { get; init; }
     public string? ClaudePath { get; init; }
     public string? ClaudeModel { get; init; }
+    public required string ProjectsRoot { get; init; }
 
     public static AppSettings Load(string[] args)
     {
@@ -57,6 +59,9 @@ public sealed class AppSettings
             WhisperModelPath = modelPath,
             ClaudePath = Pick("--claude", "BISHOP_CLAUDE_PATH", "claudePath") is { } c ? FullPath(c) : null,
             ClaudeModel = json.GetValueOrDefault("claudeModel"),
+            ProjectsRoot = Pick("--projects-root", "BISHOP_PROJECTS_ROOT", "projectsRoot") is { } pr
+                ? FullPath(pr)
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Bishop"),
         };
     }
 

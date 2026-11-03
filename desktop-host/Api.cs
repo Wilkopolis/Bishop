@@ -6,7 +6,7 @@ namespace Bishop;
 /// <summary>Minimal JSON API over <see cref="Storage"/>, plus frameless-window controls.</summary>
 public static class Api
 {
-    public static void MapBishopApi(this WebApplication app, Storage storage, Backups backups, Transcriber transcriber, ClaudeCli claude, Func<BishopWindow?> window)
+    public static void MapBishopApi(this WebApplication app, Storage storage, Backups backups, Transcriber transcriber, ClaudeCli claude, AppSettings settings, Func<BishopWindow?> window)
     {
         // Map storage exceptions to HTTP status codes.
         app.Use(async (ctx, next) =>
@@ -52,15 +52,64 @@ public static class Api
             return Results.NoContent();
         });
 
+        // A project always gets a working folder on disk (created if missing, AGENTS.md added if missing).
         api.MapPost("/projects", async (HttpContext ctx) =>
         {
             var body = await ReadBody(ctx);
-            return storage.CreateProject(body.String("name") ?? "", body.Long("folderId").Value, body.String("tagline"));
+            var name = body.String("name")?.Trim() ?? "";
+            if (name.Length == 0) throw new ArgumentException("Project name is required");
+            var folderPath = ProjectFolders.Normalize(body.String("folderPath"));
+            var tagline = body.String("tagline");
+            ProjectFolders.Link(folderPath, name, tagline);
+            return storage.CreateProject(name, body.Long("folderId").Value, tagline, folderPath);
         });
         api.MapPatch("/projects/{id:long}", async (long id, HttpContext ctx) =>
         {
             var body = await ReadBody(ctx);
-            return storage.UpdateProject(id, body.String("name"), body.Long("folderId"), body.OptionalString("tagline"));
+            // folderPath relinks the project (no files are moved); AGENTS.md is added there if missing.
+            string? folderPath = null;
+            if (body.OptionalString("folderPath") is { HasValue: true } fp)
+            {
+                folderPath = ProjectFolders.Normalize(fp.Value);
+                var current = storage.GetProject(id);
+                ProjectFolders.Link(folderPath, body.String("name") ?? current.Name, current.Tagline);
+            }
+            return storage.UpdateProject(id, body.String("name"), body.Long("folderId"), body.OptionalString("tagline"), folderPath);
+        });
+
+        // ---- project working folders
+        api.MapGet("/project-folders/suggest", (string? name) =>
+            new { root = settings.ProjectsRoot, path = ProjectFolders.Suggest(settings.ProjectsRoot, name) });
+        api.MapGet("/project-folders/status", (string? path) => ProjectFolders.Status(ProjectFolders.Normalize(path)));
+        api.MapPost("/system/pick-folder", async (HttpContext ctx) =>
+        {
+            var body = await ReadBody(ctx);
+            var initial = body.String("initial");
+            var title = body.String("title");
+            var win = window();
+            if (win is not null) return Results.Json(new { path = win.PickFolder(initial, title) });
+
+            // --api-only (dev): no window to own the dialog; show it on its own STA thread.
+            string? picked = null;
+            var thread = new Thread(() => picked = BishopWindow.ShowFolderDialog(null, initial, title));
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+            return Results.Json(new { path = picked });
+        });
+        api.MapPost("/projects/{id:long}/open-folder", (long id) =>
+        {
+            var p = storage.GetProject(id);
+            if (p.FolderPath is null || !Directory.Exists(p.FolderPath))
+                throw new ApiProblem(409, "folder_missing", "The project folder isn't linked or no longer exists.");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = p.FolderPath, UseShellExecute = true });
+            return Results.Json(new { ok = true });
+        });
+        api.MapGet("/projects/{id:long}/agents", (long id) => ProjectFolders.ReadAgents(RequireFolder(storage, id)));
+        api.MapPut("/projects/{id:long}/agents", async (long id, HttpContext ctx) =>
+        {
+            var body = await ReadBody(ctx);
+            return ProjectFolders.WriteAgents(RequireFolder(storage, id), body.String("content") ?? "", body.String("baseHash"), body.Bool("force") ?? false);
         });
         // Drag and drop: place projects, in order, into a folder (null = root).
         api.MapPost("/projects/reorder", async (HttpContext ctx) =>
@@ -187,7 +236,12 @@ public static class Api
             var transcript = body.String("transcript")?.Trim();
             if (string.IsNullOrEmpty(transcript)) throw new ArgumentException("Transcript is empty");
             var project = storage.GetProject(pid);
-            return await claude.TopicFromTranscriptAsync(project.Name, transcript, ctx.RequestAborted);
+            // Run Claude in the project folder (it reads AGENTS.md there) and give it the existing topics.
+            var workDir = project.FolderPath is { } f && Directory.Exists(f) ? f : null;
+            var existing = storage.ListTopics(pid)
+                .GroupBy(t => t.Category)
+                .ToDictionary(g => g.Key, g => g.Select(t => t.Title).ToList());
+            return await claude.TopicFromTranscriptAsync(project.Name, project.Tagline, existing, transcript, workDir, ctx.RequestAborted);
         });
 
         // ---- frameless window controls (no-ops when running --api-only)
@@ -209,6 +263,14 @@ public static class Api
             }
             return Results.Json(new { ok = true });
         });
+    }
+
+    private static string RequireFolder(Storage storage, long projectId)
+    {
+        var p = storage.GetProject(projectId);
+        if (p.FolderPath is null) throw new ApiProblem(409, "folder_unlinked", "This project has no folder yet.");
+        if (!Directory.Exists(p.FolderPath)) throw new ApiProblem(409, "folder_missing", $"The project folder doesn't exist: {p.FolderPath}");
+        return p.FolderPath;
     }
 
     private static object VoiceStatus(Transcriber transcriber, ClaudeCli claude)

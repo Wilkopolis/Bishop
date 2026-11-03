@@ -5,6 +5,7 @@ import { ProjectOverview } from './components/ProjectOverview';
 import { TopicDetail } from './components/TopicDetail';
 import { ConfirmDialog, Toasts } from './components/ui';
 import { SearchDialog } from './components/SearchDialog';
+import { AgentsEditor, ChangeFolderDialog, NewProjectDialog } from './components/ProjectFolder';
 import { useBishopStore } from './store/useBishopStore';
 
 export default function App() {
@@ -39,6 +40,9 @@ export default function App() {
       </div>
       <TopicDetail />
       <SearchDialog />
+      <NewProjectDialog />
+      <ChangeFolderDialog />
+      <AgentsEditor />
       <ConfirmDialog />
       <Toasts />
     </div>

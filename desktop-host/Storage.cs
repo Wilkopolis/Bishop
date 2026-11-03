@@ -4,7 +4,10 @@ namespace Bishop;
 
 public record FolderDto(long Id, string Name, long? ParentId, long SortOrder, string CreatedAt);
 
-public record ProjectDto(long Id, string Name, long? FolderId, long SortOrder, string CreatedAt, string UpdatedAt, string? Tagline, string? ImageVersion);
+/// <param name="FolderId">Sidebar folder (grouping), not a disk path.</param>
+/// <param name="FolderPath">The project's working folder on disk (holds AGENTS.md); null for projects created before it existed.</param>
+/// <param name="FolderMissing">FolderPath is set but the folder no longer exists (moved or deleted).</param>
+public record ProjectDto(long Id, string Name, long? FolderId, long SortOrder, string CreatedAt, string UpdatedAt, string? Tagline, string? ImageVersion, string? FolderPath, bool FolderMissing);
 
 public record ProjectImage(string Mime, byte[] Data);
 
@@ -29,7 +32,7 @@ public partial class Storage
 {
     public static readonly string[] Categories = ["RIGHT_NOW", "SOON", "LATER", "BACKLOG"];
 
-    private const int IndexSchemaVersion = 3;
+    private const int IndexSchemaVersion = 4;
     public const int MaxTaglineLength = 200;
     private const int ProjectSchemaVersion = 2;
 
@@ -141,6 +144,16 @@ public partial class Storage
             Exec(conn, "PRAGMA user_version = 3");
             tx.Commit();
         }
+
+        // v4: the project's working folder on disk. Existing projects get NULL and are asked to link one.
+        if (version < 4)
+        {
+            using var tx = conn.BeginTransaction();
+            if (!HasColumn(conn, "projects", "folder_path"))
+                Exec(conn, "ALTER TABLE projects ADD COLUMN folder_path TEXT NULL");
+            Exec(conn, "PRAGMA user_version = 4");
+            tx.Commit();
+        }
     }
 
     private static bool HasColumn(SqliteConnection conn, string table, string column)
@@ -160,7 +173,7 @@ public partial class Storage
                 folders.Add(new FolderDto(r.GetInt64(0), r.GetString(1), NullableLong(r, 2), r.GetInt64(3), r.GetString(4)));
         }
         var projects = new List<ProjectDto>();
-        using (var cmd = Command(conn, "SELECT id, name, folder_id, sort_order, created_at, updated_at, tagline, image_version FROM projects ORDER BY sort_order, id", []))
+        using (var cmd = Command(conn, $"SELECT {ProjectColumns} FROM projects ORDER BY sort_order, id", []))
         using (var r = cmd.ExecuteReader())
         {
             while (r.Read())
@@ -169,8 +182,15 @@ public partial class Storage
         return new TreeDto(folders, projects);
     }
 
-    private static ProjectDto ReadProject(SqliteDataReader r) =>
-        new(r.GetInt64(0), r.GetString(1), NullableLong(r, 2), r.GetInt64(3), r.GetString(4), r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7));
+    private const string ProjectColumns = "id, name, folder_id, sort_order, created_at, updated_at, tagline, image_version, folder_path";
+
+    private static ProjectDto ReadProject(SqliteDataReader r)
+    {
+        var folderPath = r.IsDBNull(8) ? null : r.GetString(8);
+        return new(r.GetInt64(0), r.GetString(1), NullableLong(r, 2), r.GetInt64(3), r.GetString(4), r.GetString(5),
+            r.IsDBNull(6) ? null : r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7),
+            folderPath, folderPath is not null && !Directory.Exists(folderPath));
+    }
 
     /// <summary>Trims; empty means no tagline; longer than <see cref="MaxTaglineLength"/> is rejected.</summary>
     private static string? NormalizeTagline(string? tagline)
@@ -254,7 +274,7 @@ public partial class Storage
 
     private static ProjectDto GetProject(SqliteConnection conn, long id)
     {
-        using var cmd = Command(conn, "SELECT id, name, folder_id, sort_order, created_at, updated_at, tagline, image_version FROM projects WHERE id = $id", [("$id", id)]);
+        using var cmd = Command(conn, $"SELECT {ProjectColumns} FROM projects WHERE id = $id", [("$id", id)]);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) throw new NotFoundException($"Project {id} not found");
         return ReadProject(r);
@@ -266,7 +286,8 @@ public partial class Storage
         return GetProject(conn, id);
     }
 
-    public ProjectDto CreateProject(string name, long? folderId, string? tagline = null)
+    /// <param name="folderPath">Already normalized and prepared by <see cref="ProjectFolders.Link"/>.</param>
+    public ProjectDto CreateProject(string name, long? folderId, string? tagline = null, string? folderPath = null)
     {
         name = RequireName(name, "Project name");
         tagline = NormalizeTagline(tagline);
@@ -277,14 +298,15 @@ public partial class Storage
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM projects WHERE folder_id IS $f", ("$f", folderId)));
         var fileName = $"{Guid.NewGuid():N}.db";
         var id = Convert.ToInt64(Scalar(conn,
-            "INSERT INTO projects (name, folder_id, file_name, sort_order, created_at, updated_at, tagline) VALUES ($n, $f, $file, $s, $c, $c, $t) RETURNING id",
-            ("$n", name), ("$f", folderId), ("$file", fileName), ("$s", sort), ("$c", now), ("$t", tagline)));
+            "INSERT INTO projects (name, folder_id, file_name, sort_order, created_at, updated_at, tagline, folder_path) VALUES ($n, $f, $file, $s, $c, $c, $t, $p) RETURNING id",
+            ("$n", name), ("$f", folderId), ("$file", fileName), ("$s", sort), ("$c", now), ("$t", tagline), ("$p", folderPath)));
         InitProjectDb(Path.Combine(ProjectsDir, fileName));
         return GetProject(conn, id);
     }
 
     /// <param name="tagline">None = keep; Some(null or blank) = clear.</param>
-    public ProjectDto UpdateProject(long id, string? name, Optional<long?> folderId, Optional<string?> tagline = default)
+    /// <param name="folderPath">Relink to this working folder (already prepared by <see cref="ProjectFolders.Link"/>); null keeps it.</param>
+    public ProjectDto UpdateProject(long id, string? name, Optional<long?> folderId, Optional<string?> tagline = default, string? folderPath = null)
     {
         using var conn = Open(IndexPath);
         GetProject(conn, id);
@@ -303,6 +325,11 @@ public partial class Storage
         {
             Exec(conn, "UPDATE projects SET tagline = $t, updated_at = $u WHERE id = $id",
                 ("$t", NormalizeTagline(tagline.Value)), ("$u", Now()), ("$id", id));
+        }
+        if (folderPath is not null)
+        {
+            Exec(conn, "UPDATE projects SET folder_path = $p, updated_at = $u WHERE id = $id",
+                ("$p", folderPath), ("$u", Now()), ("$id", id));
         }
         return GetProject(conn, id);
     }
