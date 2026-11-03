@@ -30,6 +30,12 @@ interface BishopState {
   setTerminalOpen: (open: boolean) => void;
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
+  /** "Work on this task with Claude": the terminal panel picks this up and starts a session for it. */
+  workRequest: { projectId: number; taskId: number } | null;
+  workOnTask: (taskId: number) => void;
+  clearWorkRequest: () => void;
+  /** Reloads the selected project's topics (e.g. after Claude ticks a task). Skipped while edits are in flight. */
+  refreshTopics: () => Promise<void>;
 
   loadTree: () => Promise<void>;
 
@@ -91,6 +97,8 @@ const now = () => new Date().toISOString();
 // Optimistically created rows get negative ids until the server responds.
 let tempId = -1;
 let toastId = 1;
+// Optimistic requests still running; a background refresh then could undo them on screen.
+let inFlight = 0;
 
 // Remember the last opened project per viewer (best effort; storage may be unavailable).
 const LAST_PROJECT_KEY = 'bishop_last_project';
@@ -129,6 +137,7 @@ export const useBishopStore = create<BishopState>((set, get) => {
   ) {
     const { folders, projects, topics, selectedProjectId } = get();
     set(apply(get()));
+    inFlight++;
     try {
       const result = await request();
       if (commit) set(commit(result, get()));
@@ -140,6 +149,8 @@ export const useBishopStore = create<BishopState>((set, get) => {
         ...(get().selectedProjectId === selectedProjectId ? { topics } : {}),
       });
       get().pushError(e);
+    } finally {
+      inFlight--;
     }
   }
 
@@ -182,6 +193,31 @@ export const useBishopStore = create<BishopState>((set, get) => {
     },
     searchOpen: false,
     setSearchOpen: (open) => set({ searchOpen: open }),
+
+    workRequest: null,
+    workOnTask: (taskId) => {
+      const pid = get().selectedProjectId;
+      if (pid === null || taskId < 0) return;
+      set({ workRequest: { projectId: pid, taskId }, openTopicId: null });
+      get().setTerminalOpen(true);
+    },
+    clearWorkRequest: () => set({ workRequest: null }),
+
+    refreshTopics: async () => {
+      const pid = get().selectedProjectId;
+      if (pid === null || inFlight > 0) return;
+      let fresh: Topic[];
+      try {
+        fresh = await api.listTopics(pid);
+      } catch {
+        return; // background refresh: stay quiet
+      }
+      const { topics, selectedProjectId } = get();
+      if (selectedProjectId !== pid || inFlight > 0) return;
+      // Unsaved (negative id) topics and tasks stay until their own requests finish.
+      if (topics.some((t) => t.id < 0 || t.tasks.some((k) => k.id < 0))) return;
+      if (JSON.stringify(fresh) !== JSON.stringify(topics)) set({ topics: fresh });
+    },
 
     loadTree: async () => {
       set({ loading: true });

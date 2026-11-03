@@ -15,6 +15,7 @@ type Session = { id: string; kind: Kind };
 const HEIGHT_KEY = 'bishop_terminal_height';
 const MIN_HEIGHT = 120;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const kindLabel = (k: Kind) => (k === 'claude' ? 'Claude' : 'PowerShell');
 
 const readHeight = () => {
   try {
@@ -149,7 +150,7 @@ function TerminalView({ session }: { session: Session }) {
 }
 
 export function TerminalPanel() {
-  const { terminalOpen, setTerminalOpen, projects, selectedProjectId } = useBishopStore();
+  const { terminalOpen, setTerminalOpen, projects, selectedProjectId, workRequest, clearWorkRequest, refreshTopics, confirm } = useBishopStore();
   const project = projects.find((p) => p.id === selectedProjectId);
   const [height, setHeight] = useState(readHeight);
   // Current session per project; sessions keep running on the server while you switch projects.
@@ -163,12 +164,12 @@ export function TerminalPanel() {
   const session = project ? sessions[project.id] : undefined;
 
   const start = useCallback(
-    async (p: Project, kind: Kind, replace?: Session) => {
+    async (p: Project, kind: Kind, replace?: Session, taskId?: number) => {
       setStarting(true);
       setError(null);
       try {
         if (replace) await api.closeTerminal(replace.id).catch(() => {});
-        const info = await api.startTerminal(p.id, kind, 120, 30);
+        const info = await api.startTerminal(p.id, kind, 120, 30, taskId);
         setSessions((s) => ({ ...s, [p.id]: { id: info.id, kind: info.kind } }));
       } catch (e) {
         setError({ projectId: p.id, text: message(e), code: e instanceof ApiError ? e.code : undefined });
@@ -182,6 +183,7 @@ export function TerminalPanel() {
   // First time the panel shows a project: reuse a running session (e.g. after a reload), else start claude.
   useEffect(() => {
     if (!terminalOpen || !project || !ready || sessions[project.id] || startedFor.current.has(project.id)) return;
+    if (workRequest?.projectId === project.id) return; // the task session below starts instead
     startedFor.current.add(project.id);
     (async () => {
       try {
@@ -194,7 +196,40 @@ export function TerminalPanel() {
       } catch {}
       start(project, 'claude');
     })();
-  }, [terminalOpen, project?.id, ready, sessions, start]);
+  }, [terminalOpen, project?.id, ready, sessions, start, workRequest]);
+
+  // "Work on this task with Claude": a fresh Claude session that reads the task's brief.
+  useEffect(() => {
+    if (!terminalOpen || !workRequest || !project || project.id !== workRequest.projectId || !ready) return;
+    const { taskId } = workRequest;
+    clearWorkRequest();
+    startedFor.current.add(project.id);
+    (async () => {
+      const current = sessions[project.id];
+      if (
+        current &&
+        !(await confirm({
+          title: 'Start Claude on this task?',
+          message: `This ends the current ${kindLabel(current.kind)} session for ${project.name} and starts a new Claude session for the task.`,
+          confirmLabel: 'Start',
+        }))
+      )
+        return;
+      start(project, 'claude', current, taskId);
+    })();
+  }, [terminalOpen, workRequest, project?.id, ready]);
+
+  // Claude can tick tasks through the API; pick that up while the terminal is open.
+  useEffect(() => {
+    if (!terminalOpen || !project) return;
+    const tick = () => document.visibilityState === 'visible' && refreshTopics();
+    const timer = setInterval(tick, 3000);
+    window.addEventListener('focus', tick);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', tick);
+    };
+  }, [terminalOpen, project?.id, refreshTopics]);
 
   // Drag the top edge to resize; remembered.
   const onDragStart = (e: React.PointerEvent) => {
@@ -221,7 +256,6 @@ export function TerminalPanel() {
 
   if (!terminalOpen) return null;
 
-  const kindLabel = (k: Kind) => (k === 'claude' ? 'Claude' : 'PowerShell');
   const headerBtn = 'flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[var(--card)] disabled:opacity-40';
 
   return (

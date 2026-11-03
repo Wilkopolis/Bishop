@@ -39,6 +39,7 @@ ICONS = {
     'TerminalWindow': ('terminal-window', 'bold'),
     'ArrowClockwise': ('arrow-clockwise', 'bold'),
     'CaretDown': ('caret-down', 'bold'),
+    'ArrowRight': ('arrow-right', 'bold'),
     'X': ('x', 'bold'),
 }
 

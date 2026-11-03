@@ -134,7 +134,7 @@ public sealed class TerminalSession : IDisposable
 
     public TerminalInfo Info => new(Id, ProjectId, Kind == TerminalKind.Claude ? "claude" : "shell", Title, Cwd, Alive, ExitCode);
 
-    public static async Task<TerminalSession> StartAsync(long projectId, TerminalKind kind, string cwd, string app, string[] args, string title, int cols, int rows, KillOnCloseJob? job)
+    public static async Task<TerminalSession> StartAsync(long projectId, TerminalKind kind, string cwd, string app, string[] args, bool verbatim, string title, int cols, int rows, KillOnCloseJob? job)
     {
         var env = new Dictionary<string, string>
         {
@@ -146,6 +146,7 @@ public sealed class TerminalSession : IDisposable
             Name = title,
             App = app,
             CommandLine = args,
+            VerbatimCommandLine = verbatim,
             Cwd = cwd,
             Cols = Math.Clamp(cols, 20, 500),
             Rows = Math.Clamp(rows, 5, 200),
@@ -334,27 +335,40 @@ public sealed class Terminals : IDisposable
 
     public TerminalSession? Get(string id) => _sessions.GetValueOrDefault(id);
 
-    public async Task<TerminalInfo> StartAsync(long projectId, string projectName, string folder, TerminalKind kind, int cols, int rows)
+    /// <param name="prompt">Claude only: a first message to send. Must not contain user text (see TaskBriefs).</param>
+    public async Task<TerminalInfo> StartAsync(long projectId, string projectName, string folder, TerminalKind kind, int cols, int rows, string? prompt = null, string? titleSuffix = null)
     {
         string app;
         string[] args;
+        var verbatim = false;
         string title;
         if (kind == TerminalKind.Claude)
         {
             var claude = _claude.Resolve() ?? throw new ApiProblem(503, "claude_missing",
                 "Claude CLI not found. Install it with `npm install -g @anthropic-ai/claude-code`, or set \"claudePath\" in settings.json.");
             // .cmd shims (npm) have to go through cmd.exe. No permission-skipping flags: Claude asks before editing files.
+            if (prompt is not null && (prompt.Contains('"') || prompt.Contains('%')))
+                throw new ArgumentException("The prompt can't contain quotes or %");
             if (claude.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
             {
                 app = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-                args = ["/d", "/c", claude];
+                if (prompt is null)
+                {
+                    args = ["/d", "/c", claude];
+                }
+                else
+                {
+                    // /s: cmd strips only the outer quotes, so both the shim path and the prompt stay quoted.
+                    args = ["/d", "/s", "/c", $"\"\"{claude}\" \"{prompt}\"\""];
+                    verbatim = true;
+                }
             }
             else
             {
                 app = claude;
-                args = [];
+                args = prompt is null ? [] : [prompt];
             }
-            title = $"claude · {projectName}";
+            title = $"claude · {projectName}{titleSuffix}";
         }
         else
         {
@@ -363,7 +377,7 @@ public sealed class Terminals : IDisposable
             title = $"PowerShell · {projectName}";
         }
 
-        var session = await TerminalSession.StartAsync(projectId, kind, folder, app, args, title, cols, rows, _job);
+        var session = await TerminalSession.StartAsync(projectId, kind, folder, app, args, verbatim, title, cols, rows, _job);
         _sessions[session.Id] = session;
         return session.Info;
     }

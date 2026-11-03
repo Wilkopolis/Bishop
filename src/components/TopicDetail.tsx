@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Check, GripVertical, Trash2, X } from './icons';
+import { ArrowRight, Check, GripVertical, Trash2, X } from './icons';
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -9,7 +9,7 @@ import { sortTasks } from './categories';
 import { CategorySelect } from './ProjectOverview';
 import { InlineInput, Modal } from './ui';
 
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task, onWork }: { task: Task; onWork?: () => void }) {
   const { setTaskCompleted, renameTask, deleteTask } = useBishopStore();
   const [editing, setEditing] = useState(false);
   const pending = task.id < 0;
@@ -56,6 +56,16 @@ function TaskRow({ task }: { task: Task }) {
           {task.title}
         </span>
       )}
+      {onWork && !task.completed && !pending && (
+        <button
+          title="Work on this task with Claude (opens the Terminal)"
+          aria-label={`Work on ${task.title} with Claude`}
+          onClick={onWork}
+          className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-70 focus-visible:opacity-100 hover:!opacity-100 hover:text-[var(--primary-text)]"
+        >
+          <ArrowRight size={14} />
+        </button>
+      )}
       <button
         title="Remove task"
         disabled={pending}
@@ -69,7 +79,10 @@ function TaskRow({ task }: { task: Task }) {
 }
 
 export function TopicDetail() {
-  const { topics, openTopicId, openTopic, updateTopic, deleteTopic, addTask, moveTopic, reorderTasks, confirm } = useBishopStore();
+  const { topics, projects, selectedProjectId, openTopicId, openTopic, updateTopic, deleteTopic, addTask, moveTopic, reorderTasks, workOnTask, confirm } =
+    useBishopStore();
+  const project = projects.find((p) => p.id === selectedProjectId);
+  const canWork = !!project?.folderPath && !project.folderMissing;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -109,6 +122,12 @@ export function TopicDetail() {
     saveTitle();
     saveDescription();
     openTopic(null);
+  };
+  // Hands one task to Claude in the Terminal; the topic closes so the terminal is visible.
+  const work = (taskId: number) => {
+    saveTitle();
+    saveDescription();
+    workOnTask(taskId);
   };
 
   const tasks = sortTasks(topic.tasks);
@@ -160,7 +179,7 @@ export function TopicDetail() {
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
               <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                 {tasks.map((t) => (
-                  <TaskRow key={t.id} task={t} />
+                  <TaskRow key={t.id} task={t} onWork={canWork ? () => work(t.id) : undefined} />
                 ))}
               </SortableContext>
             </DndContext>

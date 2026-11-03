@@ -87,8 +87,9 @@ export const api = {
     request<AgentsFile>('PUT', `/projects/${id}/agents`, { content, baseHash, force }),
 
   listTerminals: (projectId: number) => request<TerminalInfo[]>('GET', `/terminal/sessions?projectId=${projectId}`),
-  startTerminal: (projectId: number, kind: 'claude' | 'shell', cols: number, rows: number) =>
-    request<TerminalInfo>('POST', '/terminal/sessions', { projectId, kind, cols, rows }),
+  /** taskId starts Claude on that task, with a brief about its topic. */
+  startTerminal: (projectId: number, kind: 'claude' | 'shell', cols: number, rows: number, taskId?: number) =>
+    request<TerminalInfo>('POST', '/terminal/sessions', { projectId, kind, cols, rows, taskId }),
   closeTerminal: (id: string) => request<void>('DELETE', `/terminal/sessions/${id}`),
 
   search: (q: string) => request<SearchHit[]>('GET', `/search?q=${encodeURIComponent(q)}`),

@@ -88,6 +88,19 @@ public static class Api
             var kind = body.String("kind") == "shell" ? TerminalKind.Shell : TerminalKind.Claude;
             var cols = (int)(body.Long("cols").Value ?? 100);
             var rows = (int)(body.Long("rows").Value ?? 30);
+            // taskId: start Claude on one task, with a brief about its topic (see TaskBriefs).
+            if (body.Long("taskId").Value is { } taskId)
+            {
+                if (kind != TerminalKind.Claude) throw new ArgumentException("taskId needs kind \"claude\"");
+                var topic = storage.ListTopics(projectId).FirstOrDefault(t => t.Tasks.Any(k => k.Id == taskId))
+                    ?? throw new NotFoundException($"Task {taskId} not found");
+                var task = topic.Tasks.First(k => k.Id == taskId);
+                // Claude calls back on the port Bishop is listening on right now.
+                var apiBase = $"http://127.0.0.1:{ctx.Connection.LocalPort}";
+                var brief = TaskBriefs.Write(storage.DataRoot, project, topic, task, apiBase);
+                Log.Info($"Task brief for task {taskId}: {brief.Path}");
+                return await terminals.StartAsync(projectId, project.Name, folder, kind, cols, rows, brief.Prompt, $" · {task.Title}");
+            }
             return await terminals.StartAsync(projectId, project.Name, folder, kind, cols, rows);
         });
         api.MapDelete("/terminal/sessions/{id}", (string id) =>
@@ -234,6 +247,9 @@ public static class Api
             var body = await ReadBody(ctx);
             return storage.UpdateTask(pid, taskId, body.String("title"), body.Bool("completed"), body.Long("sortOrder").Value);
         });
+        // For Claude (or a script) to tick a task without JSON quoting: no body.
+        api.MapPost("/projects/{pid:long}/tasks/{taskId:long}/complete", (long pid, long taskId) =>
+            storage.UpdateTask(pid, taskId, null, true, null));
         api.MapDelete("/projects/{pid:long}/tasks/{taskId:long}", (long pid, long taskId) =>
         {
             storage.DeleteTask(pid, taskId);

@@ -38,10 +38,11 @@ Produces a self-contained win-x64 folder in `release\publish\Bishop-<version>-wi
 ## Using Bishop
 
 - **Project folder & AGENTS.md:** every project is linked to a folder on disk (its code repo, or one Bishop creates under `Documents\Bishop\<name>`). Bishop adds an `AGENTS.md` there if there isn't one (it never overwrites or deletes anything in the folder). The overview shows the path with *Open folder* and *Edit AGENTS.md*; the sidebar menu has *Change folder…* (relinks, no files move). Projects created before folders existed, or whose folder was moved, show a banner to pick one. Voice topic runs Claude in this folder, so Claude Code reads `AGENTS.md` (verified with Claude Code 2.1.317, which reads `AGENTS.md` natively, so Bishop doesn't add a `CLAUDE.md`). Deleting a project in Bishop never touches its folder.
-- **Project overview:** the panel at the top shows the title and tagline (click either to edit the tagline), topic counts per category, task progress, and an optional picture. Add a picture by clicking the dashed box (it appears on hover), dropping an image file onto the panel, or pasting one; hover the picture to replace or remove it. Pictures are downscaled to 1600 px before upload.
+- **Project overview:** the panel at the top shows the title and tagline (click either to edit the tagline), task progress, and an optional picture. Add a picture by clicking the dashed box (it appears on hover), dropping an image file onto the panel, or pasting one; hover the picture to replace or remove it. Pictures are downscaled to 1600 px before upload.
 - **Projects & folders:** right-click (or the `…` button) for rename / move / delete; double-click to rename. Drag projects onto a folder, onto another project (to go above it), or onto the empty area at the bottom to move them out of a folder.
 - **Topics:** the Right now / Soon / Later / Backlog sections are stacked top to bottom; each wraps its cards in a grid and can be collapsed (remembered per project). Drag a card within a section to reorder it, or into another section: an orange bar shows exactly where it will land (empty sections and collapsed headers take it at the end). Keyboard: focus a card, Space to pick up, arrow keys to move (Up/Down step between sections), Space to drop, Esc to cancel; Enter opens the card.
 - **Tasks:** in a topic, drag the grip handle (or focus it, Space, arrows, Space) to reorder.
+- **Work on a task with Claude:** hover an open task and click the arrow. The topic closes, the Terminal opens, and a new Claude session starts in the project folder (if the project already has a session, Bishop asks first, since that session ends). Bishop writes a brief to `<data root>\work\` with the topic title, category and description, every task in the topic with its done state, and which one to work on; Claude gets a short prompt that points at that file, so task text never goes on a command line. When Claude finishes, it marks the task done by calling Bishop's local API with `curl.exe` (Claude asks before running it, like any command). While the Terminal is open, Bishop reloads the topics every few seconds so the tick shows up. Briefs older than 7 days are deleted.
 - **Search:** Ctrl+K or Ctrl+F searches topic titles, descriptions and task titles in every project. Arrow keys + Enter open the topic.
 - **Voice topic:** the mic button on a project records a note, transcribes it locally, and asks Claude for a draft topic you edit before saving.
 - **Terminal:** Ctrl+` (or *Terminal* in the title bar) opens a panel at the bottom running the interactive `claude` CLI in the selected project's folder, so it reads that folder's `AGENTS.md`. It's a real pseudo-terminal (Windows ConPTY + xterm.js). Each project keeps its own session while you switch projects; *Restart* starts it again and *New ▾* opens a fresh Claude or PowerShell session. Drag the top edge to resize (remembered). Ctrl+C copies a selection (otherwise it goes to the program), Ctrl+Shift+C / Ctrl+Shift+V copy and paste, right-click copies or pastes; links open in your browser. Claude's normal permission prompts apply (Bishop passes no permission flags). Terminal processes are in a Windows Job Object, so they're killed with Bishop, even if it crashes.
@@ -97,6 +98,7 @@ The Whisper model (~1.6 GB) is downloaded from Hugging Face (`ggerganov/whisper.
   index.db              folders + projects tree
   models\               Whisper model files (never in the repo)
   backups\              daily/manual backups (newest 14 kept)
+  work\                 task briefs for Claude (older than 7 days deleted)
   projects\<guid>.db    one database per project (topics + tasks)
   trash\                deleted project databases (moved, not destroyed)
 ```
@@ -139,7 +141,7 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | POST   | `/api/system/pick-folder` | `{ initial?, title? }` → native folder picker → `{ path \| null }` |
 | POST   | `/api/projects/{id}/open-folder` | opens the project folder in Explorer |
 | GET    | `/api/terminal/sessions?projectId=` | terminal sessions `{ id, projectId, kind, title, cwd, alive, exitCode }` |
-| POST   | `/api/terminal/sessions` | `{ projectId, kind: "claude" \| "shell", cols, rows }` → starts a session in the project folder |
+| POST   | `/api/terminal/sessions` | `{ projectId, kind: "claude" \| "shell", cols, rows, taskId? }` → starts a session in the project folder; `taskId` (claude only) writes a task brief and starts Claude on it |
 | DELETE | `/api/terminal/sessions/{id}` | ends the session and its processes |
 | WS     | `/api/terminal/ws/{id}` | loopback origins only. Client → `{type:"input",data}` / `{type:"resize",cols,rows}`; server → `replay` (scrollback on attach), `output`, `exit` |
 | GET    | `/api/projects/{id}/agents` | `{ path, exists, content, hash }` |
@@ -158,6 +160,7 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | POST   | `/api/projects/{pid}/topics/{tid}/tasks` | `{ title }` |
 | POST   | `/api/projects/{pid}/topics/{tid}/tasks/reorder` | `{ taskIds }` |
 | PATCH  | `/api/projects/{pid}/tasks/{taskId}` | `{ title?, completed?, sortOrder? }` |
+| POST   | `/api/projects/{pid}/tasks/{taskId}/complete` | no body; marks the task done (used by Claude from a task brief) |
 | DELETE | `/api/projects/{pid}/tasks/{taskId}` | |
 | GET    | `/api/search?q=` | matches in topic titles, descriptions and task titles across all projects |
 | GET    | `/api/backups` | `{ folder, keep, backups }` |

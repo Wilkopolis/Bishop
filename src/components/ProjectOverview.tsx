@@ -529,7 +529,7 @@ function ProjectPicture({ project, onFile, dragOver }: { project: Project; onFil
 
 const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
 
-/** Top-of-page panel: title, tagline and a summary on the left, the project picture on the right. */
+/** Top-of-page panel: title, tagline and task progress on the left, the project picture on the right. */
 function OverviewPanel({ project, topics, onVoice }: { project: Project; topics: Topic[]; onVoice: () => void }) {
   const setProjectImage = useBishopStore((s) => s.setProjectImage);
   const [dragOver, setDragOver] = useState(false);
@@ -582,22 +582,6 @@ function OverviewPanel({ project, topics, onVoice }: { project: Project; topics:
         <div className="group/title flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
           <h1 className="text-2xl font-semibold truncate max-w-full">{project.name}</h1>
           <ProjectTagline project={project} />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2" data-testid="overview-counts">
-          {CATEGORIES.map((c) => {
-            const n = topics.filter((t) => t.category === c).length;
-            return (
-              <span
-                key={c}
-                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-[var(--border)] bg-[var(--card)] text-xs ${n === 0 ? 'opacity-50' : ''}`}
-              >
-                <span className={`w-2 h-2 rounded-full ${CATEGORY_DOTS[c]}`} />
-                {CATEGORY_LABELS[c]}
-                <span className="tabular-nums font-semibold">{n}</span>
-              </span>
-            );
-          })}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]" data-testid="overview-progress">
