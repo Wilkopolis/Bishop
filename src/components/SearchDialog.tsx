@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search } from './icons';
 import { api } from '../api/client';
 import { useBishopStore } from '../store/useBishopStore';
 import type { SearchHit } from '../types';

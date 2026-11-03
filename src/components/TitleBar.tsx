@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Minus, Square, X } from 'lucide-react';
+import { Copy, Minus, Square, X } from './icons';
 import { windowApi } from '../api/client';
 
 export function TitleBar() {
@@ -29,7 +29,10 @@ export function TitleBar() {
         if (!(e.target as HTMLElement).closest('button')) toggleMaximize();
       }}
     >
-      <span className="px-3 text-xs font-semibold tracking-wide text-[var(--muted-foreground)]">Bishop</span>
+      <div className="flex items-center gap-2 px-3">
+        <span className="w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary)]" aria-hidden="true" />
+        <span className="font-semibold tracking-tight text-[13px] leading-none text-[var(--foreground)]">Bishop</span>
+      </div>
       <div className="flex h-full">
         <button className="w-11 h-full grid place-items-center hover:bg-[var(--card)]" onClick={() => windowApi.minimize()} title="Minimize">
           <Minus size={14} />

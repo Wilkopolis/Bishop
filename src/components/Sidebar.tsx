@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type MouseEvent } from 'react';
-import { Folder as FolderIcon, FolderPlus, MoreHorizontal, NotebookText, Plus, Search, Settings } from 'lucide-react';
+import { Folder as FolderIcon, FolderPlus, MoreHorizontal, NotebookText, Plus, Search, Settings } from './icons';
 import {
   DndContext,
   DragOverlay,

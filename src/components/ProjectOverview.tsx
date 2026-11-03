@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Mic, Plus } from 'lucide-react';
+import { Mic, Plus } from './icons';
 import {
   closestCenter,
   DndContext,
@@ -59,7 +59,7 @@ function TopicCardBody({ topic, onCategory }: { topic: Topic; onCategory?: (c: C
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {total > 0 && (
             <div className="h-1 w-12 min-w-2 shrink rounded bg-[var(--sidebar)] overflow-hidden">
-              <div className="h-full bg-emerald-500" style={{ width: `${(done / total) * 100}%` }} />
+              <div className="h-full bg-[var(--primary)]" style={{ width: `${(done / total) * 100}%` }} />
             </div>
           )}
           <span className="shrink-0 text-xs text-[var(--muted-foreground)] tabular-nums">

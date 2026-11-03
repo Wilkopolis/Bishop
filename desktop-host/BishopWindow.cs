@@ -81,7 +81,7 @@ public class BishopWindow : Form
         MinimumSize = new Size(900, 560);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.None;
-        BackColor = Color.FromArgb(16, 19, 26);
+        BackColor = Color.FromArgb(21, 20, 19);
 
         RestoreWindowBounds();
 
@@ -95,7 +95,7 @@ public class BishopWindow : Form
         _webView = new WebView2
         {
             Dock = DockStyle.Fill,
-            DefaultBackgroundColor = Color.FromArgb(16, 19, 26)
+            DefaultBackgroundColor = Color.FromArgb(21, 20, 19)
         };
         Controls.Add(_webView);
 

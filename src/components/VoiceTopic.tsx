@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileAudio, Loader2, Mic, Plus, Sparkles, Square, X } from 'lucide-react';
+import { Download, FileAudio, Loader2, Mic, Plus, Sparkles, Stop, X } from './icons';
 import { api } from '../api/client';
 import { startRecording, toWav16k, type Recording } from '../audio/recorder';
 import { useBishopStore } from '../store/useBishopStore';
@@ -244,7 +244,7 @@ export function VoiceTopic({ onClose }: { onClose: () => void }) {
             {phase.kind === 'recording' && (
               <>
                 <button className="w-20 h-20 rounded-full grid place-items-center bg-red-600 text-white animate-pulse" title="Stop recording" onClick={stop}>
-                  <Square size={28} fill="currentColor" />
+                  <Stop size={28} />
                 </button>
                 <span className="text-2xl tabular-nums">{clock(now - phase.startedAt)}</span>
                 <span className="text-sm text-[var(--muted-foreground)]">Recording… click to stop.</span>

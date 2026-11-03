@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Check, GripVertical, Trash2, X } from 'lucide-react';
+import { Check, GripVertical, Trash2, X } from './icons';
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -41,10 +41,10 @@ function TaskRow({ task }: { task: Task }) {
         disabled={pending}
         onClick={() => setTaskCompleted(task.id, !task.completed)}
         className={`shrink-0 w-4 h-4 rounded border grid place-items-center ${
-          task.completed ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-[var(--muted-foreground)] hover:border-[var(--primary)]'
+          task.completed ? 'bg-[var(--primary)] border-[var(--primary)] text-white' : 'border-[var(--muted-foreground)] hover:border-[var(--primary)]'
         }`}
       >
-        {task.completed && <Check size={12} strokeWidth={3} />}
+        {task.completed && <Check size={12} />}
       </button>
       {editing ? (
         <InlineInput initial={task.title} onCommit={(t) => { setEditing(false); renameTask(task.id, t); }} onCancel={() => setEditing(false)} />

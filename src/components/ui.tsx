@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, X } from './icons';
 import { useBishopStore } from '../store/useBishopStore';
 
 export interface MenuItem {
@@ -161,7 +161,7 @@ export function Toasts() {
           key={t.id}
           role="alert"
           className={`flex items-start gap-3 max-w-sm px-3 py-2 rounded-md border text-sm shadow-lg ${
-            t.kind === 'info' ? 'border-emerald-800 bg-emerald-950/90 text-emerald-100' : 'border-red-800 bg-red-950/90 text-red-100'
+            t.kind === 'info' ? 'border-[var(--primary)] bg-[var(--card)] text-[var(--foreground)]' : 'border-red-800 bg-red-950/90 text-red-100'
           }`}
         >
           <span className="flex-1">{t.message}</span>
