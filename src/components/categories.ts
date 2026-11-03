@@ -7,13 +7,6 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   BACKLOG: 'Backlog',
 };
 
-export const CATEGORY_ACCENTS: Record<Category, string> = {
-  RIGHT_NOW: 'border-t-orange-500',
-  SOON: 'border-t-amber-400',
-  LATER: 'border-t-rose-400',
-  BACKLOG: 'border-t-stone-500',
-};
-
 export const CATEGORY_DOTS: Record<Category, string> = {
   RIGHT_NOW: 'bg-orange-500',
   SOON: 'bg-amber-400',

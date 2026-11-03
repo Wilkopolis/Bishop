@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ImageIcon, Loader2, Mic, Plus, Trash2, UploadSimple } from './icons';
+import { ChevronRight, ImageIcon, Loader2, Mic, Plus, Trash2, UploadSimple } from './icons';
 import { api } from '../api/client';
 import { imageFromDataTransfer, PICTURE_ACCEPT } from '../images';
 import {
@@ -16,15 +16,15 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
-  type DragOverEvent,
+  type DragMoveEvent,
   type DragStartEvent,
   type UniqueIdentifier,
 } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { arrayMove, rectSortingStrategy, SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { bySortOrder, useBishopStore } from '../store/useBishopStore';
 import { CATEGORIES, MAX_TAGLINE_LENGTH, type Category, type Project, type Topic } from '../types';
-import { CATEGORY_ACCENTS, CATEGORY_DOTS, CATEGORY_LABELS } from './categories';
+import { CATEGORY_DOTS, CATEGORY_LABELS } from './categories';
 import { InlineInput } from './ui';
 import { VoiceTopic } from './VoiceTopic';
 import { BishopLogo } from './BishopLogo';
@@ -77,7 +77,7 @@ function TopicCardBody({ topic, onCategory }: { topic: Topic; onCategory?: (c: C
 
 const cardClass = 'rounded-md border border-[var(--border)] bg-[var(--card)] p-3';
 
-function TopicCard({ topic }: { topic: Topic }) {
+function TopicCard({ topic, hint }: { topic: Topic; hint?: 'before' | 'after' }) {
   const { openTopic, moveTopic } = useBishopStore();
   const pending = topic.id < 0;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id, disabled: pending });
@@ -92,7 +92,7 @@ function TopicCard({ topic }: { topic: Topic }) {
       data-testid="topic-card"
       data-topic-id={topic.id}
       aria-label={`${topic.title}. Press Space to pick up and move with arrow keys, Enter to open.`}
-      className={`${cardClass} cursor-grab active:cursor-grabbing hover:border-[var(--primary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] transition-colors ${
+      className={`${cardClass} relative cursor-grab active:cursor-grabbing hover:border-[var(--primary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] transition-colors ${
         pending ? 'opacity-60' : ''
       } ${isDragging ? 'opacity-30' : ''}`}
       onClick={() => !pending && openTopic(topic.id)}
@@ -101,58 +101,119 @@ function TopicCard({ topic }: { topic: Topic }) {
         else listeners?.onKeyDown?.(e);
       }}
     >
+      {hint && (
+        <div
+          data-testid="drop-hint"
+          className={`absolute top-1 bottom-1 w-1 rounded bg-[var(--primary)] ${hint === 'before' ? '-left-1.5' : '-right-1.5'}`}
+        />
+      )}
       <TopicCardBody topic={topic} onCategory={(category) => moveTopic(topic.id, category, Number.MAX_SAFE_INTEGER)} />
     </div>
   );
 }
 
-function Column({ category, topics }: { category: Category; topics: Topic[] }) {
+type CollapsedMap = Partial<Record<Category, boolean>>;
+
+const collapsedKey = (projectId: number) => `bishop_collapsed_${projectId}`;
+
+function readCollapsed(projectId: number): CollapsedMap {
+  try {
+    const raw = localStorage.getItem(collapsedKey(projectId));
+    return raw ? (JSON.parse(raw) as CollapsedMap) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** One category, stacked: a header row, then its cards in a wrapping grid. */
+function Section({
+  category,
+  topics,
+  collapsed,
+  onToggle,
+  hint,
+}: {
+  category: Category;
+  topics: Topic[];
+  collapsed: boolean;
+  onToggle: () => void;
+  hint: DropHint | null;
+}) {
   const { createTopic } = useBishopStore();
   const [adding, setAdding] = useState(false);
+  // Expanded: the grid is the drop target. Collapsed: the header is (dropping appends).
   const { setNodeRef, isOver } = useDroppable({ id: category });
 
   return (
-    <section
-      data-testid={`column-${category}`}
-      className={`flex flex-col min-w-0 rounded-lg border border-[var(--border)] border-t-2 ${CATEGORY_ACCENTS[category]} bg-[var(--sidebar)] ${
-        isOver ? 'ring-1 ring-[var(--primary)]' : ''
-      }`}
-    >
-      <header className="flex items-center justify-between px-3 py-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-          {CATEGORY_LABELS[category]} <span className="ml-1 tabular-nums">{topics.length}</span>
-        </h2>
-        <button className="p-1 rounded hover:bg-[var(--card)]" title="Add topic" onClick={() => setAdding(true)}>
+    <section data-testid={`column-${category}`} aria-label={CATEGORY_LABELS[category]} className="flex flex-col gap-2">
+      <header
+        ref={collapsed ? setNodeRef : undefined}
+        className={`flex items-center gap-2 py-1.5 border-b transition-colors ${
+          collapsed && isOver ? 'border-[var(--primary)] bg-[var(--primary-subtle)]' : 'border-[var(--border)]'
+        }`}
+      >
+        <button
+          className="flex items-center gap-2 rounded px-1 -ml-1 hover:text-[var(--foreground)] text-[var(--muted-foreground)]"
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand' : 'Collapse'}
+          onClick={onToggle}
+        >
+          <ChevronRight size={12} className={`transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+          <span className={`w-2.5 h-2.5 rounded-full ${CATEGORY_DOTS[category]}`} />
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--foreground)]">{CATEGORY_LABELS[category]}</h2>
+          <span className="text-xs tabular-nums">{topics.length}</span>
+        </button>
+        <div className="flex-1" />
+        <button
+          className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--card)]"
+          title={`Add topic to ${CATEGORY_LABELS[category]}`}
+          onClick={() => {
+            if (collapsed) onToggle();
+            setAdding(true);
+          }}
+        >
           <Plus size={14} />
         </button>
       </header>
-      <div ref={setNodeRef} className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-2 min-h-16">
-        <SortableContext items={topics.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-          {topics.map((t) => (
-            <TopicCard key={t.id} topic={t} />
-          ))}
-        </SortableContext>
-        {adding ? (
-          <InlineInput
-            placeholder="Topic title"
-            onCommit={(title) => {
-              setAdding(false);
-              createTopic(title, category);
-            }}
-            onCancel={() => setAdding(false)}
-          />
-        ) : (
-          <button
-            className="text-left text-xs px-2 py-1.5 rounded text-[var(--muted-foreground)] hover:bg-[var(--card)] hover:text-[var(--foreground)]"
-            onClick={() => setAdding(true)}
-          >
-            + Add topic
-          </button>
-        )}
-      </div>
+      {!collapsed && (
+        <div
+          ref={setNodeRef}
+          className={`grid gap-2 grid-cols-[repeat(auto-fill,minmax(260px,1fr))] rounded-md transition-colors ${
+            isOver ? 'bg-[var(--primary-subtle)]' : ''
+          }`}
+        >
+          <SortableContext items={topics.map((t) => t.id)} strategy={rectSortingStrategy}>
+            {topics.map((t) => (
+              <TopicCard key={t.id} topic={t} hint={hint?.cardId === t.id ? (hint.after ? 'after' : 'before') : undefined} />
+            ))}
+          </SortableContext>
+          {adding ? (
+            <div className="self-start">
+              <InlineInput
+                placeholder="Topic title"
+                onCommit={(title) => {
+                  setAdding(false);
+                  createTopic(title, category);
+                }}
+                onCancel={() => setAdding(false)}
+              />
+            </div>
+          ) : (
+            <button
+              className="min-h-10 text-left text-xs px-3 py-2 rounded-md border border-dashed border-transparent text-[var(--muted-foreground)] hover:border-[var(--border)] hover:text-[var(--foreground)]"
+              onClick={() => setAdding(true)}
+            >
+              + Add topic
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }
+
+/** Where a card dragged in from another section will land: next to a card, or at the end. */
+type DropHint = { category: Category; cardId: number | null; after: boolean };
 
 function buildColumns(topics: Topic[]): Columns {
   const cols = { RIGHT_NOW: [], SOON: [], LATER: [], BACKLOG: [] } as Columns;
@@ -160,14 +221,31 @@ function buildColumns(topics: Topic[]): Columns {
   return cols;
 }
 
-function Board({ topics }: { topics: Topic[] }) {
+/**
+ * Drag and drop for the stacked sections.
+ * - Within a section: dnd-kit sortable (the grid reflows live; the card takes the hovered card's place).
+ * - Into another section: nothing reflows. An insertion bar shows on the hovered card's left/right
+ *   edge (by pointer position) and the drop lands exactly there; empty areas and collapsed headers append.
+ */
+function Board({ topics, projectId }: { topics: Topic[]; projectId: number }) {
   const moveTopic = useBishopStore((s) => s.moveTopic);
-  const base = useMemo(() => buildColumns(topics), [topics]);
-  // While dragging, a local copy of the columns tracks where the card currently sits.
-  const [dragCols, setDragCols] = useState<Columns | null>(null);
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const columns = dragCols ?? base;
+  const columns = useMemo(() => buildColumns(topics), [topics]);
   const byId = useMemo(() => new Map(topics.map((t) => [t.id, t])), [topics]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [hint, setHint] = useState<DropHint | null>(null);
+  const startColumn = useRef<Category | undefined>(undefined);
+
+  // Collapsed sections, remembered per project (best effort; storage may be unavailable).
+  const [collapsed, setCollapsed] = useState<CollapsedMap>(() => readCollapsed(projectId));
+  useEffect(() => setCollapsed(readCollapsed(projectId)), [projectId]);
+  const toggle = (c: Category) =>
+    setCollapsed((prev) => {
+      const next = { ...prev, [c]: !prev[c] };
+      try {
+        localStorage.setItem(collapsedKey(projectId), JSON.stringify(next));
+      } catch {}
+      return next;
+    });
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -178,81 +256,88 @@ function Board({ topics }: { topics: Topic[] }) {
   );
 
   const isColumn = (id: UniqueIdentifier) => (CATEGORIES as readonly UniqueIdentifier[]).includes(id);
-  const containerOf = (cols: Columns, id: UniqueIdentifier): Category | undefined =>
-    isColumn(id) ? (id as Category) : CATEGORIES.find((c) => cols[c].includes(Number(id)));
+  const containerOf = (id: UniqueIdentifier): Category | undefined =>
+    isColumn(id) ? (id as Category) : CATEGORIES.find((c) => columns[c].includes(Number(id)));
 
-  // Collision strategy for multiple sortable columns (after dnd-kit's MultipleContainers
-  // example): prefer what's under the pointer, pick the closest card inside a column, and
-  // hold the last target while the layout settles so moving between columns can't loop.
-  const lastOverId = useRef<UniqueIdentifier | null>(null);
-  const movedToNewColumn = useRef(false);
+  // Prefer what's under the pointer; inside a section's empty space pick its closest card.
   const collision: CollisionDetection = useCallback(
     (args) => {
       const pointerHits = pointerWithin(args);
       const hits = pointerHits.length > 0 ? pointerHits : rectIntersection(args);
-      let overId = getFirstCollision(hits, 'id');
-      if (overId != null) {
-        if (isColumn(overId)) {
-          const ids = columns[overId as Category];
-          if (ids.length > 0) {
-            overId =
-              closestCenter({
-                ...args,
-                droppableContainers: args.droppableContainers.filter((c) => c.id !== overId && ids.includes(Number(c.id))),
-              })[0]?.id ?? overId;
-          }
-        }
-        lastOverId.current = overId;
-        return [{ id: overId }];
-      }
-      if (movedToNewColumn.current) lastOverId.current = activeId;
-      return lastOverId.current != null ? [{ id: lastOverId.current }] : [];
+      const card = hits.find((h) => !isColumn(h.id));
+      if (card) return [card];
+      const overId = getFirstCollision(hits, 'id');
+      if (overId == null) return [];
+      const ids = columns[overId as Category] ?? [];
+      const cards = args.droppableContainers.filter((c) => ids.includes(Number(c.id)));
+      // Over a section's own empty space (same section): snap to its nearest card for sortable.
+      if (cards.length > 0 && overId === startColumn.current) return closestCenter({ ...args, droppableContainers: cards });
+      return [{ id: overId }];
     },
-    [activeId, columns],
+    [columns],
   );
 
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      movedToNewColumn.current = false;
-    });
-  }, [dragCols]);
+  /** Pointer position for mouse/touch drags; null for keyboard drags. */
+  const pointerAt = (e: DragMoveEvent | DragEndEvent): { x: number; y: number } | null => {
+    const a = e.activatorEvent as PointerEvent;
+    return typeof a?.clientX === 'number' ? { x: a.clientX + e.delta.x, y: a.clientY + e.delta.y } : null;
+  };
+
+  const computeHint = (e: DragMoveEvent | DragEndEvent): DropHint | null => {
+    const { active, over } = e;
+    if (!over) return null;
+    const target = containerOf(over.id);
+    if (!target || target === startColumn.current) return null;
+    if (isColumn(over.id) || Number(over.id) === Number(active.id)) return { category: target, cardId: null, after: true };
+    // Same row: left/right of the card's center; otherwise above/below.
+    const p = pointerAt(e);
+    const t = active.rect.current.translated;
+    const x = p?.x ?? (t ? t.left + t.width / 2 : 0);
+    const y = p?.y ?? (t ? t.top + t.height / 2 : 0);
+    const r = over.rect;
+    const sameRow = y >= r.top && y <= r.top + r.height;
+    const after = sameRow ? x > r.left + r.width / 2 : y > r.top + r.height / 2;
+    return { category: target, cardId: Number(over.id), after };
+  };
+
+  const reset = () => {
+    setActiveId(null);
+    setHint(null);
+    startColumn.current = undefined;
+  };
 
   const onDragStart = ({ active }: DragStartEvent) => {
     setActiveId(Number(active.id));
-    setDragCols(base);
+    startColumn.current = containerOf(active.id);
   };
 
-  const onDragOver = ({ active, over }: DragOverEvent) => {
-    if (!over) return;
-    const cols = dragCols ?? base;
-    const from = containerOf(cols, active.id);
-    const to = containerOf(cols, over.id);
-    if (!from || !to || from === to) return;
-    const id = Number(active.id);
-    const target = cols[to].filter((x) => x !== id);
-    const overIndex = target.indexOf(Number(over.id));
-    // Dropping below the hovered card's midpoint inserts after it.
-    const translated = active.rect.current.translated;
-    const below = translated != null && translated.top > over.rect.top + over.rect.height / 2;
-    target.splice(overIndex >= 0 ? overIndex + (below ? 1 : 0) : target.length, 0, id);
-    movedToNewColumn.current = true;
-    setDragCols({ ...cols, [from]: cols[from].filter((x) => x !== id), [to]: target });
+  const onDragMove = (e: DragMoveEvent) => {
+    const next = computeHint(e);
+    setHint((prev) =>
+      prev?.category === next?.category && prev?.cardId === next?.cardId && prev?.after === next?.after ? prev : next,
+    );
   };
 
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    const cols = dragCols ?? base;
-    setDragCols(null);
-    setActiveId(null);
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
     const id = Number(active.id);
-    const container = containerOf(cols, active.id);
-    if (!over || !container) return;
-    let items = cols[container];
+    const from = startColumn.current;
+    const dropHint = computeHint(e);
+    reset();
+    if (!over || !from) return;
+
+    if (dropHint) {
+      // Into another section, at the hinted spot.
+      const list = columns[dropHint.category].filter((x) => x !== id);
+      const index = dropHint.cardId == null ? list.length : list.indexOf(dropHint.cardId) + (dropHint.after ? 1 : 0);
+      moveTopic(id, dropHint.category, index);
+      return;
+    }
+    // Same section: sortable semantics, matching the live preview.
+    const items = columns[from];
     const oldIndex = items.indexOf(id);
     const overIndex = items.indexOf(Number(over.id));
-    if (overIndex >= 0 && overIndex !== oldIndex) items = arrayMove(items, oldIndex, overIndex);
-    const index = items.indexOf(id);
-    const topic = byId.get(id);
-    if (topic && (topic.category !== container || base[container].indexOf(id) !== index)) moveTopic(id, container, index);
+    if (overIndex >= 0 && overIndex !== oldIndex) moveTopic(id, from, arrayMove(items, oldIndex, overIndex).indexOf(id));
   };
 
   const active = activeId !== null ? byId.get(activeId) : undefined;
@@ -262,16 +347,20 @@ function Board({ topics }: { topics: Topic[] }) {
       sensors={sensors}
       collisionDetection={collision}
       onDragStart={onDragStart}
-      onDragOver={onDragOver}
+      onDragMove={onDragMove}
       onDragEnd={onDragEnd}
-      onDragCancel={() => {
-        setDragCols(null);
-        setActiveId(null);
-      }}
+      onDragCancel={reset}
     >
-      <div className="flex-1 grid grid-cols-4 gap-3 min-h-0">
+      <div className="flex flex-col gap-5 pb-6">
         {CATEGORIES.map((cat) => (
-          <Column key={cat} category={cat} topics={columns[cat].map((id) => byId.get(id)!).filter(Boolean)} />
+          <Section
+            key={cat}
+            category={cat}
+            topics={columns[cat].map((id) => byId.get(id)!).filter(Boolean)}
+            collapsed={!!collapsed[cat]}
+            onToggle={() => toggle(cat)}
+            hint={hint?.category === cat ? hint : null}
+          />
         ))}
       </div>
       <DragOverlay>
@@ -549,10 +638,11 @@ export function ProjectOverview() {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden p-5 gap-4">
+    // The whole page scrolls: the faded overview first, then the stacked category sections.
+    <div className="flex-1 flex flex-col overflow-y-auto p-5 gap-4" data-testid="project-page">
       <OverviewPanel project={project} topics={topics} onVoice={() => setVoiceOpen(true)} />
       {voiceOpen && <VoiceTopic onClose={() => setVoiceOpen(false)} />}
-      <Board topics={topics} />
+      <Board topics={topics} projectId={project.id} />
     </div>
   );
 }
