@@ -2,7 +2,7 @@
 
 A local, offline project management app for Windows.
 
-- **Frontend:** React 19 + TypeScript + Vite 6 + Tailwind 4 + Zustand (`src/`, built to `dist/`). Icons are [Phosphor](https://phosphoricons.com) (MIT), inlined by `scripts/gen-icons.py` into `src/components/icons.tsx`; theme colors (warm gray + orange) are CSS variables in `src/index.css`.
+- **Frontend:** React 19 + TypeScript + Vite 6 + Tailwind 4 + Zustand (`src/`, built to `dist/`). Icons are [Phosphor](https://phosphoricons.com) (MIT), inlined by `scripts/gen-icons.py` into `src/components/icons.tsx`; theme colors (warm gray + orange) are CSS variables in `src/index.css`. The app icon and logo are Kenney's chess bishop ([Board Game Icons](https://kenney.nl), CC0); `scripts/gen-app-icon.py` builds `desktop-host/app.ico` and the favicons from it.
 - **Desktop host:** .NET 10 WinForms + WebView2 with an embedded ASP.NET minimal API (`desktop-host/`). The Vite build is embedded into `Bishop.exe`.
 - **Storage:** SQLite via Microsoft.Data.Sqlite. One index database for the folder/project tree, one database per project.
 - **Voice topics:** local speech-to-text with [Whisper.net](https://github.com/sandrohanea/whisper.net) (CUDA → Vulkan → CPU), then the Claude Code CLI drafts a topic you review before saving.

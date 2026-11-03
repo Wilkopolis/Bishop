@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Copy, Minus, Square, X } from './icons';
 import { windowApi } from '../api/client';
+import { BishopLogo } from './BishopLogo';
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -30,7 +31,7 @@ export function TitleBar() {
       }}
     >
       <div className="flex items-center gap-2 px-3">
-        <span className="w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary)]" aria-hidden="true" />
+        <BishopLogo size={16} className="text-[var(--primary-hover)]" />
         <span className="font-semibold tracking-tight text-[13px] leading-none text-[var(--foreground)]">Bishop</span>
       </div>
       <div className="flex h-full">

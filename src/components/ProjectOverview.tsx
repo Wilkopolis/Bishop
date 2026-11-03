@@ -25,6 +25,7 @@ import { CATEGORIES, type Category, type Topic } from '../types';
 import { CATEGORY_ACCENTS, CATEGORY_LABELS } from './categories';
 import { InlineInput } from './ui';
 import { VoiceTopic } from './VoiceTopic';
+import { BishopLogo } from './BishopLogo';
 
 type Columns = Record<Category, number[]>;
 
@@ -288,7 +289,12 @@ export function ProjectOverview() {
   const [voiceOpen, setVoiceOpen] = useState(false);
 
   if (!project) {
-    return <div className="flex-1 grid place-items-center text-sm text-[var(--muted-foreground)]">Select or create a project.</div>;
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-sm text-[var(--muted-foreground)]">
+        <BishopLogo size={96} className="text-[var(--primary)] opacity-25" />
+        Select or create a project.
+      </div>
+    );
   }
 
   return (
