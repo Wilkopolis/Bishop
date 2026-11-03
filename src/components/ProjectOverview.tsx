@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Mic, Plus } from './icons';
+import { ImageIcon, Loader2, Mic, Plus, Trash2, UploadSimple } from './icons';
+import { api } from '../api/client';
+import { imageFromDataTransfer, PICTURE_ACCEPT } from '../images';
 import {
   closestCenter,
   DndContext,
@@ -22,7 +24,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities';
 import { bySortOrder, useBishopStore } from '../store/useBishopStore';
 import { CATEGORIES, MAX_TAGLINE_LENGTH, type Category, type Project, type Topic } from '../types';
-import { CATEGORY_ACCENTS, CATEGORY_LABELS } from './categories';
+import { CATEGORY_ACCENTS, CATEGORY_DOTS, CATEGORY_LABELS } from './categories';
 import { InlineInput } from './ui';
 import { VoiceTopic } from './VoiceTopic';
 import { BishopLogo } from './BishopLogo';
@@ -349,6 +351,170 @@ function ProjectTagline({ project }: { project: Project }) {
   );
 }
 
+const overlayButton =
+  'flex items-center gap-1.5 px-2.5 py-1 text-xs rounded bg-black/70 text-white border border-white/15 hover:bg-[var(--primary)] hover:border-[var(--primary)]';
+
+/** The project picture, or a dashed "Add picture" zone that only shows on hover/drag. */
+function ProjectPicture({ project, onFile, dragOver }: { project: Project; onFile: (f: File) => void; dragOver: boolean }) {
+  const { uploadingImage, removeProjectImage, confirm } = useBishopStore();
+  const input = useRef<HTMLInputElement>(null);
+  const uploading = uploadingImage.includes(project.id);
+  const pick = () => input.current?.click();
+  const box = 'relative w-full sm:w-72 h-44 shrink-0 rounded-md overflow-hidden';
+  const spinner = uploading && (
+    <div className="absolute inset-0 grid place-items-center bg-black/50 text-white">
+      <Loader2 size={22} className="animate-spin" />
+    </div>
+  );
+
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        accept={PICTURE_ACCEPT}
+        className="hidden"
+        data-testid="picture-input"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (f) onFile(f);
+        }}
+      />
+      {project.imageVersion ? (
+        <div data-testid="project-picture" className={`group/pic ${box} border border-[var(--border)] bg-[var(--card)]`}>
+          <img src={api.projectImageUrl(project.id, project.imageVersion)} alt={`${project.name} picture`} draggable={false} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 flex items-end justify-end gap-2 p-2 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover/pic:opacity-100 focus-within:opacity-100 transition-opacity">
+            <button className={overlayButton} onClick={pick}>
+              <UploadSimple size={13} /> Replace
+            </button>
+            <button
+              className={overlayButton}
+              onClick={async () => {
+                if (await confirm({ title: 'Remove picture?', message: `The picture for "${project.name}" will be removed.`, confirmLabel: 'Remove' }))
+                  removeProjectImage(project.id);
+              }}
+            >
+              <Trash2 size={13} /> Remove
+            </button>
+          </div>
+          {spinner}
+        </div>
+      ) : (
+        <button
+          data-testid="project-picture-add"
+          onClick={pick}
+          className={`${box} border-2 border-dashed flex flex-col items-center justify-center gap-1.5 text-xs transition ${
+            dragOver || uploading
+              ? 'opacity-100 border-[var(--primary)] text-[var(--foreground)] bg-[var(--primary-subtle)]'
+              : 'opacity-0 group-hover/overview:opacity-100 focus-visible:opacity-100 border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          <ImageIcon size={22} />
+          <span className="text-sm">Add picture</span>
+          <span className="opacity-70">Click, drop or paste an image</span>
+          {spinner}
+        </button>
+      )}
+    </>
+  );
+}
+
+const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+
+/** Top-of-page panel: title, tagline and a summary on the left, the project picture on the right. */
+function OverviewPanel({ project, topics, onVoice }: { project: Project; topics: Topic[]; onVoice: () => void }) {
+  const setProjectImage = useBishopStore((s) => s.setProjectImage);
+  const [dragOver, setDragOver] = useState(false);
+  const tasks = topics.flatMap((t) => t.tasks);
+  const done = tasks.filter((t) => t.completed).length;
+  const onFile = (f: File) => setProjectImage(project.id, f);
+
+  // Paste an image anywhere on the page (outside text fields and dialogs) to set the picture.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.('input, textarea, [contenteditable="true"]')) return;
+      if (document.querySelector('[data-testid=topic-detail], [data-testid=voice-topic], [data-testid=search-dialog], [data-testid=confirm-dialog]')) return;
+      const f = imageFromDataTransfer(e.clipboardData);
+      if (f) {
+        e.preventDefault();
+        setProjectImage(project.id, f);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [project.id, setProjectImage]);
+
+  return (
+    <section
+      data-testid="overview"
+      aria-label="Project overview"
+      className={`group/overview flex flex-wrap-reverse gap-5 rounded-lg border bg-[var(--sidebar)] p-4 transition-colors ${
+        dragOver ? 'border-[var(--primary)]' : 'border-[var(--border)]'
+      }`}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        setDragOver(false);
+        const f = imageFromDataTransfer(e.dataTransfer);
+        if (f) onFile(f);
+      }}
+    >
+      <div className="flex-1 basis-80 min-w-0 flex flex-col gap-3">
+        <div className="group/title flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
+          <h1 className="text-2xl font-semibold truncate max-w-full">{project.name}</h1>
+          <ProjectTagline project={project} />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2" data-testid="overview-counts">
+          {CATEGORIES.map((c) => {
+            const n = topics.filter((t) => t.category === c).length;
+            return (
+              <span
+                key={c}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-[var(--border)] bg-[var(--card)] text-xs ${n === 0 ? 'opacity-50' : ''}`}
+              >
+                <span className={`w-2 h-2 rounded-full ${CATEGORY_DOTS[c]}`} />
+                {CATEGORY_LABELS[c]}
+                <span className="tabular-nums font-semibold">{n}</span>
+              </span>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]" data-testid="overview-progress">
+          <div className="h-1.5 w-40 rounded bg-[var(--card)] overflow-hidden">
+            <div className="h-full bg-[var(--primary)] transition-[width]" style={{ width: `${tasks.length ? (done / tasks.length) * 100 : 0}%` }} />
+          </div>
+          <span className="tabular-nums">
+            {tasks.length ? `${done}/${tasks.length} tasks done` : 'No tasks yet'}
+          </span>
+        </div>
+
+        <div className="mt-auto pt-1">
+          <button
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]"
+            title="Record a voice note and turn it into a topic"
+            onClick={onVoice}
+          >
+            <Mic size={15} /> Voice topic
+          </button>
+        </div>
+      </div>
+      <ProjectPicture project={project} onFile={onFile} dragOver={dragOver} />
+    </section>
+  );
+}
+
 export function ProjectOverview() {
   const { projects, selectedProjectId, topics } = useBishopStore();
   const project = projects.find((p) => p.id === selectedProjectId);
@@ -365,19 +531,7 @@ export function ProjectOverview() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-5 gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="group/title flex flex-wrap items-baseline gap-x-3 gap-y-1 flex-1 min-w-0">
-          <h1 className="text-xl font-semibold truncate max-w-full">{project.name}</h1>
-          <ProjectTagline project={project} />
-        </div>
-        <button
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:brightness-110"
-          title="Record a voice note and turn it into a topic"
-          onClick={() => setVoiceOpen(true)}
-        >
-          <Mic size={15} /> Voice topic
-        </button>
-      </div>
+      <OverviewPanel project={project} topics={topics} onVoice={() => setVoiceOpen(true)} />
       {voiceOpen && <VoiceTopic onClose={() => setVoiceOpen(false)} />}
       <Board topics={topics} />
     </div>

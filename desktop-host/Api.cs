@@ -74,6 +74,32 @@ public static class Api
             return Results.NoContent();
         });
 
+        // ---- project picture (raw image body; see ProjectImages for limits)
+        api.MapGet("/projects/{id:long}/image", (long id, HttpContext ctx) =>
+        {
+            var image = storage.GetProjectImage(id);
+            // URLs carry ?v=<image_version>, so the bytes behind one URL never change.
+            ctx.Response.Headers.CacheControl = "private, max-age=31536000, immutable";
+            return Results.Bytes(image.Data, image.Mime);
+        });
+        api.MapPost("/projects/{id:long}/image", async (long id, HttpContext ctx) =>
+        {
+            var sizeFeature = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+            if (sizeFeature is { IsReadOnly: false }) sizeFeature.MaxRequestBodySize = ProjectImages.MaxUploadBytes + 1;
+            using var body = new MemoryStream();
+            try
+            {
+                await ctx.Request.Body.CopyToAsync(body, ctx.RequestAborted);
+            }
+            catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+            {
+                throw new ApiProblem(413, "too_large", $"Picture is too large; the limit is {ProjectImages.MaxUploadBytes / 1048576} MB");
+            }
+            storage.GetProject(id); // 404 before doing any image work
+            return storage.SetProjectImage(id, ProjectImages.Prepare(body.ToArray()));
+        });
+        api.MapDelete("/projects/{id:long}/image", (long id) => storage.DeleteProjectImage(id));
+
         // ---- topics (each returned with its tasks)
         api.MapGet("/projects/{pid:long}/topics", (long pid) => storage.ListTopics(pid));
         api.MapPost("/projects/{pid:long}/topics", async (long pid, HttpContext ctx) =>

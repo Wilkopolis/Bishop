@@ -14,6 +14,13 @@ export const CATEGORY_ACCENTS: Record<Category, string> = {
   BACKLOG: 'border-t-stone-500',
 };
 
+export const CATEGORY_DOTS: Record<Category, string> = {
+  RIGHT_NOW: 'bg-orange-500',
+  SOON: 'bg-amber-400',
+  LATER: 'bg-rose-400',
+  BACKLOG: 'bg-stone-500',
+};
+
 /** Open tasks first (by sort order), completed tasks after. */
 export const sortTasks = (tasks: Task[]) =>
   [...tasks].sort((a, b) => Number(a.completed) - Number(b.completed) || a.sortOrder - b.sortOrder || a.id - b.id);

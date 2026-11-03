@@ -4,7 +4,9 @@ namespace Bishop;
 
 public record FolderDto(long Id, string Name, long? ParentId, long SortOrder, string CreatedAt);
 
-public record ProjectDto(long Id, string Name, long? FolderId, long SortOrder, string CreatedAt, string UpdatedAt, string? Tagline);
+public record ProjectDto(long Id, string Name, long? FolderId, long SortOrder, string CreatedAt, string UpdatedAt, string? Tagline, string? ImageVersion);
+
+public record ProjectImage(string Mime, byte[] Data);
 
 public record TaskDto(long Id, long TopicId, string Title, bool Completed, long SortOrder, string CreatedAt, string? CompletedAt);
 
@@ -27,9 +29,9 @@ public partial class Storage
 {
     public static readonly string[] Categories = ["RIGHT_NOW", "SOON", "LATER", "BACKLOG"];
 
-    private const int IndexSchemaVersion = 2;
+    private const int IndexSchemaVersion = 3;
     public const int MaxTaglineLength = 200;
-    private const int ProjectSchemaVersion = 1;
+    private const int ProjectSchemaVersion = 2;
 
     public string DataRoot { get; }
     private string IndexPath => Path.Combine(DataRoot, "index.db");
@@ -129,6 +131,16 @@ public partial class Storage
             Exec(conn, "PRAGMA user_version = 2");
             tx.Commit();
         }
+
+        // v3: image_version marks that the project has a picture and busts browser caches.
+        if (version < 3)
+        {
+            using var tx = conn.BeginTransaction();
+            if (!HasColumn(conn, "projects", "image_version"))
+                Exec(conn, "ALTER TABLE projects ADD COLUMN image_version TEXT NULL");
+            Exec(conn, "PRAGMA user_version = 3");
+            tx.Commit();
+        }
     }
 
     private static bool HasColumn(SqliteConnection conn, string table, string column)
@@ -148,7 +160,7 @@ public partial class Storage
                 folders.Add(new FolderDto(r.GetInt64(0), r.GetString(1), NullableLong(r, 2), r.GetInt64(3), r.GetString(4)));
         }
         var projects = new List<ProjectDto>();
-        using (var cmd = Command(conn, "SELECT id, name, folder_id, sort_order, created_at, updated_at, tagline FROM projects ORDER BY sort_order, id", []))
+        using (var cmd = Command(conn, "SELECT id, name, folder_id, sort_order, created_at, updated_at, tagline, image_version FROM projects ORDER BY sort_order, id", []))
         using (var r = cmd.ExecuteReader())
         {
             while (r.Read())
@@ -158,7 +170,7 @@ public partial class Storage
     }
 
     private static ProjectDto ReadProject(SqliteDataReader r) =>
-        new(r.GetInt64(0), r.GetString(1), NullableLong(r, 2), r.GetInt64(3), r.GetString(4), r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6));
+        new(r.GetInt64(0), r.GetString(1), NullableLong(r, 2), r.GetInt64(3), r.GetString(4), r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7));
 
     /// <summary>Trims; empty means no tagline; longer than <see cref="MaxTaglineLength"/> is rejected.</summary>
     private static string? NormalizeTagline(string? tagline)
@@ -242,7 +254,7 @@ public partial class Storage
 
     private static ProjectDto GetProject(SqliteConnection conn, long id)
     {
-        using var cmd = Command(conn, "SELECT id, name, folder_id, sort_order, created_at, updated_at, tagline FROM projects WHERE id = $id", [("$id", id)]);
+        using var cmd = Command(conn, "SELECT id, name, folder_id, sort_order, created_at, updated_at, tagline, image_version FROM projects WHERE id = $id", [("$id", id)]);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) throw new NotFoundException($"Project {id} not found");
         return ReadProject(r);
@@ -340,6 +352,9 @@ public partial class Storage
         var version = Convert.ToInt32(Scalar(conn, "PRAGMA user_version;"));
         if (version >= ProjectSchemaVersion) return;
 
+        // v1: topics + tasks.
+        if (version < 1)
+        {
         var categoryList = string.Join(",", Categories.Select(c => $"'{c}'"));
         Exec(conn, $"""
             CREATE TABLE IF NOT EXISTS topics (
@@ -362,8 +377,58 @@ public partial class Storage
             );
             CREATE INDEX IF NOT EXISTS ix_topics_category ON topics(category, sort_order);
             CREATE INDEX IF NOT EXISTS ix_tasks_topic ON tasks(topic_id, sort_order);
-            PRAGMA user_version = {ProjectSchemaVersion};
+            PRAGMA user_version = 1;
             """);
+        }
+
+        // v2: optional project picture, stored in the project's own file so it moves
+        // with the project (backups, trash).
+        if (version < 2)
+        {
+            Exec(conn, """
+                CREATE TABLE IF NOT EXISTS project_image (
+                    id          INTEGER PRIMARY KEY CHECK (id = 1),
+                    mime        TEXT    NOT NULL,
+                    data        BLOB    NOT NULL,
+                    updated_at  TEXT    NOT NULL
+                );
+                PRAGMA user_version = 2;
+                """);
+        }
+    }
+
+    public ProjectImage GetProjectImage(long projectId)
+    {
+        using var conn = OpenProject(projectId);
+        using var cmd = Command(conn, "SELECT mime, data FROM project_image WHERE id = 1", []);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) throw new NotFoundException($"Project {projectId} has no picture");
+        return new ProjectImage(r.GetString(0), (byte[])r["data"]);
+    }
+
+    /// <summary>Stores (replaces) the project picture; returns the updated project.</summary>
+    public ProjectDto SetProjectImage(long projectId, ProjectImage image)
+    {
+        var now = Now();
+        using (var conn = OpenProject(projectId))
+        {
+            Exec(conn, """
+                INSERT INTO project_image (id, mime, data, updated_at) VALUES (1, $m, $d, $u)
+                ON CONFLICT(id) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = excluded.updated_at
+                """, ("$m", image.Mime), ("$d", image.Data), ("$u", now));
+        }
+        using var index = Open(IndexPath);
+        Exec(index, "UPDATE projects SET image_version = $v, updated_at = $v WHERE id = $id", ("$v", now), ("$id", projectId));
+        return GetProject(index, projectId);
+    }
+
+    public ProjectDto DeleteProjectImage(long projectId)
+    {
+        using (var conn = OpenProject(projectId))
+            Exec(conn, "DELETE FROM project_image");
+        using var index = Open(IndexPath);
+        Exec(index, "UPDATE projects SET image_version = NULL, updated_at = $u WHERE id = $id", ("$u", Now()), ("$id", projectId));
+        return GetProject(index, projectId);
     }
 
     private SqliteConnection OpenProject(long projectId)

@@ -46,6 +46,9 @@ export const api = {
   updateProject: (id: number, patch: { name?: string; folderId?: number | null; tagline?: string | null }) =>
     request<Project>('PATCH', `/projects/${id}`, patch),
   deleteProject: (id: number) => request<void>('DELETE', `/projects/${id}`),
+  projectImageUrl: (id: number, version: string) => `/api/projects/${id}/image?v=${encodeURIComponent(version)}`,
+  setProjectImage: (id: number, image: Blob) => request<Project>('POST', `/projects/${id}/image`, image),
+  deleteProjectImage: (id: number) => request<Project>('DELETE', `/projects/${id}/image`),
   reorderProjects: (folderId: number | null, projectIds: number[]) =>
     request<Project[]>('POST', '/projects/reorder', { folderId, projectIds }),
 

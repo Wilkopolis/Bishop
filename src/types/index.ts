@@ -18,6 +18,8 @@ export interface Project {
   updatedAt: string;
   /** Optional one-line description shown next to the project title (max 200 chars). */
   tagline: string | null;
+  /** Set when the project has a picture; changes whenever the picture does (cache key). */
+  imageVersion: string | null;
 }
 
 export const MAX_TAGLINE_LENGTH = 200;

@@ -19,6 +19,7 @@ ICONS = {
     'Folder': ('folder', 'bold'),
     'FolderPlus': ('folder-plus', 'bold'),
     'GripVertical': ('dots-six-vertical', 'bold'),
+    'ImageIcon': ('image', 'bold'),
     'Loader2': ('spinner-gap', 'bold'),
     'Mic': ('microphone', 'bold'),
     'Minus': ('minus', 'bold'),
@@ -31,6 +32,7 @@ ICONS = {
     'Square': ('square', 'bold'),
     'Stop': ('stop', 'fill'),
     'Trash2': ('trash', 'bold'),
+    'UploadSimple': ('upload-simple', 'bold'),
     'X': ('x', 'bold'),
 }
 

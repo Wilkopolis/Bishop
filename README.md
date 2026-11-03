@@ -37,6 +37,7 @@ Produces a self-contained win-x64 folder in `release\publish\Bishop-<version>-wi
 
 ## Using Bishop
 
+- **Project overview:** the panel at the top shows the title and tagline (click either to edit the tagline), topic counts per category, task progress, and an optional picture. Add a picture by clicking the dashed box (it appears on hover), dropping an image file onto the panel, or pasting one; hover the picture to replace or remove it. Pictures are downscaled to 1600 px before upload.
 - **Projects & folders:** right-click (or the `…` button) for rename / move / delete; double-click to rename. Drag projects onto a folder, onto another project (to go above it), or onto the empty area at the bottom to move them out of a folder.
 - **Topics:** drag cards between the Right now / Soon / Later / Backlog columns or up and down within one. Keyboard: focus a card, Space to pick up, arrow keys to move, Space to drop, Esc to cancel; Enter opens the card.
 - **Tasks:** in a topic, drag the grip handle (or focus it, Space, arrows, Space) to reorder.
@@ -106,7 +107,7 @@ Window state (`window.json`) and the WebView2 profile always live in `%LOCALAPPD
 | table    | columns |
 |----------|---------|
 | folders  | id, name, parent_id → folders, sort_order, created_at |
-| projects | id, name, folder_id → folders, file_name, sort_order, created_at, updated_at, tagline (nullable, ≤200 chars; added in schema v2) |
+| projects | id, name, folder_id → folders, file_name, sort_order, created_at, updated_at, tagline (nullable, ≤200 chars; schema v2), image_version (nullable; set when the project has a picture, used as a cache key; schema v3) |
 
 **projects/&lt;guid&gt;.db**
 
@@ -114,6 +115,7 @@ Window state (`window.json`) and the WebView2 profile always live in `%LOCALAPPD
 |--------|---------|
 | topics | id, title, description, category (`RIGHT_NOW` \| `SOON` \| `LATER` \| `BACKLOG`), sort_order, created_at, updated_at |
 | tasks  | id, topic_id → topics (cascade delete), title, completed (0/1), sort_order, created_at, completed_at |
+| project_image | id (always 1), mime, data (blob), updated_at: the optional project picture, kept in the project's own file so backups and trash include it (schema v2) |
 
 Categories apply to topics, not tasks. Each database tracks its schema with `PRAGMA user_version`.
 
@@ -131,6 +133,9 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | PATCH  | `/api/projects/{id}` | `{ name?, folderId?, tagline? }` (tagline: trimmed, blank or `null` clears, >200 chars → 400) |
 | POST   | `/api/projects/reorder` | `{ folderId, projectIds }`: puts these projects, in order, into a folder (null = root) |
 | DELETE | `/api/projects/{id}` | project db moved to `trash\` |
+| GET    | `/api/projects/{id}/image?v=` | the project picture (immutable cache per `imageVersion`) |
+| POST   | `/api/projects/{id}/image` | raw PNG/JPEG/WebP/GIF body, ≤20 MB; type sniffed from bytes; PNG/JPEG over 1600 px downscaled; returns the project |
+| DELETE | `/api/projects/{id}/image` | removes the picture; returns the project |
 | GET    | `/api/projects/{pid}/topics` | topics, each with `tasks` |
 | POST   | `/api/projects/{pid}/topics` | `{ title, description?, category? }` (default `BACKLOG`) |
 | POST   | `/api/projects/{pid}/topics/reorder` | `{ category, topicIds }`: full ordered list for one column |

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
+import { preparePicture } from '../images';
 import type { Category, Folder, Project, Task, Topic, TopicDraft } from '../types';
 
 export interface Toast {
@@ -36,6 +37,11 @@ interface BishopState {
   createProject: (name: string, folderId?: number | null) => Promise<void>;
   renameProject: (id: number, name: string) => Promise<void>;
   setProjectTagline: (id: number, tagline: string | null) => Promise<void>;
+  /** Uploads (or replaces) a project's picture. The returned promise settles when done. */
+  setProjectImage: (id: number, file: File) => Promise<void>;
+  removeProjectImage: (id: number) => Promise<void>;
+  /** Projects with an upload in progress. */
+  uploadingImage: number[];
   /** Whether the overview's tagline editor is open (the sidebar menu can open it too). */
   editingTagline: boolean;
   setEditingTagline: (editing: boolean) => void;
@@ -140,6 +146,7 @@ export const useBishopStore = create<BishopState>((set, get) => {
     toasts: [],
     confirmRequest: null,
     editingTagline: false,
+    uploadingImage: [],
     setEditingTagline: (editing) => set({ editingTagline: editing }),
     searchOpen: false,
     setSearchOpen: (open) => set({ searchOpen: open }),
@@ -218,6 +225,27 @@ export const useBishopStore = create<BishopState>((set, get) => {
         (project, s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }),
       );
     },
+
+    // Not optimistic (there's nothing to show until the server has the bytes); the
+    // panel shows a spinner via uploadingImage, and errors become toasts.
+    setProjectImage: async (id, file) => {
+      set((s) => ({ uploadingImage: [...s.uploadingImage, id] }));
+      try {
+        const project = await api.setProjectImage(id, await preparePicture(file));
+        set((s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }));
+      } catch (e) {
+        get().pushError(e);
+      } finally {
+        set((s) => ({ uploadingImage: s.uploadingImage.filter((x) => x !== id) }));
+      }
+    },
+
+    removeProjectImage: (id) =>
+      optimistic(
+        (s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, imageVersion: null } : p)) }),
+        () => api.deleteProjectImage(id),
+        (project, s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }),
+      ),
 
     moveProject: (id, folderId) =>
       optimistic(
