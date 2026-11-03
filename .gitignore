@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+release/
+*.local
+tsconfig.tsbuildinfo
+
+# .NET build artifacts
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+
+# WebView2 runtime user data
+EBWebView/
+
+# Logs / env
+npm-debug.log*
+.env
+.env.local
+
+# Editor / OS
+.vscode/*
+.idea/
+.DS_Store
+Thumbs.db
+[Dd]esktop.ini

@@ -1,0 +1,30 @@
+{
+  "name": "bishop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "dotnet run --project desktop-host/Bishop.csproj -- --api-only",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "build:standalone": "npm run build && dotnet build desktop-host/Bishop.csproj -c Release -o ./release",
+    "desktop": "npm run build:standalone && .\\release\\Bishop.exe"
+  },
+  "dependencies": {
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.6",
+    "typescript": "~5.7.2",
+    "vite": "^6.1.0"
+  }
+}
