@@ -47,10 +47,10 @@ Default data root is `%LOCALAPPDATA%\Bishop\`. Settings resolve from a command-l
 | data root | `--data-dir` | `BISHOP_DATA_DIR` | `dataDir` | `%LOCALAPPDATA%\Bishop` |
 | Whisper model file | `--whisper-model` | `BISHOP_WHISPER_MODEL` | `whisperModelPath` | `<data root>\models\ggml-<model>.bin` |
 | Whisper model name | | | `whisperModel` | `large-v3-turbo` |
-| Claude CLI | `--claude` | `BISHOP_CLAUDE_PATH` | `claudePath` | PATH, `~\.localbin`, then the Claude desktop app's bundled copy |
+| Claude CLI | `--claude` | `BISHOP_CLAUDE_PATH` | `claudePath` | PATH, `~\.local\bin`, then the Claude desktop app's bundled copy |
 | Claude model | | | `claudeModel` | CLI default |
 
-The Whisper model (~1.6 GB) is downloaded from Hugging Face (`ggerganov/whisper.cpp`) the first time you open **Voice topic**, with progress shown in the dialog. Logs go to `%LOCALAPPDATA%\Bishopbishop.log` (including which Whisper backend loaded).
+The Whisper model (~1.6 GB) is downloaded from Hugging Face (`ggerganov/whisper.cpp`) the first time you open **Voice topic**, with progress shown in the dialog. Logs go to `%LOCALAPPDATA%\Bishop\bishop.log` (including which Whisper backend loaded).
 
 ```
 <data root>\
