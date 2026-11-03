@@ -44,6 +44,23 @@ export interface Tree {
   projects: Project[];
 }
 
+export interface SearchHit {
+  projectId: number;
+  projectName: string;
+  topicId: number;
+  topicTitle: string;
+  category: Category;
+  matchKind: 'title' | 'description' | 'task';
+  snippet: string;
+}
+
+export interface BackupInfo {
+  name: string;
+  path: string;
+  createdAt: string;
+  sizeBytes: number;
+}
+
 export interface WhisperStatus {
   model: string;
   modelPath: string;

@@ -56,6 +56,8 @@ public class Program
         TaskScheduler.UnobservedTaskException += (_, e) => Log.Info($"Unobserved task exception: {e.Exception}");
         var settings = AppSettings.Load(args);
         var storage = new Storage(settings.DataRoot);
+        var backups = new Backups(storage);
+        _ = Task.Run(backups.RunDailyIfDue);
         var transcriber = new Transcriber(settings.WhisperModelName, settings.WhisperModelPath);
         var claude = new ClaudeCli(settings.ClaudePath, settings.ClaudeModel);
         Log.Info($"Bishop starting; data={settings.DataRoot}; model={settings.WhisperModelPath}; claude={claude.Resolve() ?? "(not found)"}");
@@ -66,7 +68,7 @@ public class Program
         builder.WebHost.UseKestrel(options => options.Listen(IPAddress.Loopback, port));
 
         var app = builder.Build();
-        app.MapBishopApi(storage, transcriber, claude, () => MainWindow);
+        app.MapBishopApi(storage, backups, transcriber, claude, () => MainWindow);
 
         // Serve the embedded Vite build (dist/ -> wwwroot/*) with SPA fallback to index.html.
         var asm = Assembly.GetExecutingAssembly();

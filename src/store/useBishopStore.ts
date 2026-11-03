@@ -5,6 +5,14 @@ import type { Category, Folder, Project, Task, Topic, TopicDraft } from '../type
 export interface Toast {
   id: number;
   message: string;
+  kind: 'error' | 'info';
+}
+
+export interface ConfirmRequest {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  resolve: (ok: boolean) => void;
 }
 
 interface BishopState {
@@ -15,6 +23,9 @@ interface BishopState {
   openTopicId: number | null;
   loading: boolean;
   toasts: Toast[];
+  confirmRequest: ConfirmRequest | null;
+  searchOpen: boolean;
+  setSearchOpen: (open: boolean) => void;
 
   loadTree: () => Promise<void>;
 
@@ -25,6 +36,8 @@ interface BishopState {
   createProject: (name: string, folderId?: number | null) => Promise<void>;
   renameProject: (id: number, name: string) => Promise<void>;
   moveProject: (id: number, folderId: number | null) => Promise<void>;
+  /** Drag and drop: put a project into a folder (null = root), before another project or at the end. */
+  placeProject: (id: number, folderId: number | null, beforeId: number | null) => Promise<void>;
   deleteProject: (id: number) => Promise<void>;
   selectProject: (id: number | null) => Promise<void>;
 
@@ -32,14 +45,20 @@ interface BishopState {
   updateTopic: (id: number, patch: { title?: string; description?: string; category?: Category }) => Promise<void>;
   deleteTopic: (id: number) => Promise<void>;
   saveTopicDraft: (draft: TopicDraft) => Promise<boolean>;
+  /** Drag and drop: move a topic to `index` within `category`. */
+  moveTopic: (id: number, category: Category, index: number) => Promise<void>;
   openTopic: (id: number | null) => void;
 
   addTask: (topicId: number, title: string) => Promise<void>;
   setTaskCompleted: (taskId: number, completed: boolean) => Promise<void>;
   renameTask: (taskId: number, title: string) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
+  reorderTasks: (topicId: number, orderedIds: number[]) => Promise<void>;
+
+  confirm: (opts: { title: string; message: string; confirmLabel?: string }) => Promise<boolean>;
 
   pushError: (e: unknown) => void;
+  pushInfo: (message: string) => void;
   dismissToast: (id: number) => void;
 }
 
@@ -66,6 +85,9 @@ const writeLastProject = (id: number | null) => {
     else localStorage.setItem(LAST_PROJECT_KEY, String(id));
   } catch {}
 };
+
+export const bySortOrder = (a: { sortOrder: number; id: number }, b: { sortOrder: number; id: number }) =>
+  a.sortOrder - b.sortOrder || a.id - b.id;
 
 const mapTask = (topics: Topic[], taskId: number, fn: (t: Task) => Task): Topic[] =>
   topics.map((topic) =>
@@ -112,6 +134,9 @@ export const useBishopStore = create<BishopState>((set, get) => {
     openTopicId: null,
     loading: false,
     toasts: [],
+    confirmRequest: null,
+    searchOpen: false,
+    setSearchOpen: (open) => set({ searchOpen: open }),
 
     loadTree: async () => {
       set({ loading: true });
@@ -185,6 +210,27 @@ export const useBishopStore = create<BishopState>((set, get) => {
         () => api.updateProject(id, { folderId }),
         (project, s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }),
       ),
+
+    placeProject: async (id, folderId, beforeId) => {
+      const { projects } = get();
+      const moving = projects.find((p) => p.id === id);
+      if (!moving || beforeId === id) return;
+      const siblings = projects.filter((p) => p.folderId === folderId && p.id !== id).sort(bySortOrder);
+      let index = beforeId === null ? siblings.length : siblings.findIndex((p) => p.id === beforeId);
+      if (index < 0) index = siblings.length;
+      siblings.splice(index, 0, moving);
+      const ids = siblings.map((p) => p.id);
+      const unchanged =
+        moving.folderId === folderId &&
+        ids.every((pid, i) => i === 0 || bySortOrder(projects.find((p) => p.id === ids[i - 1])!, projects.find((p) => p.id === pid)!) < 0);
+      if (unchanged) return;
+      const order = new Map(ids.map((pid, i) => [pid, i]));
+      await optimistic(
+        (s) => ({ projects: s.projects.map((p) => (order.has(p.id) ? { ...p, folderId, sortOrder: order.get(p.id)! } : p)) }),
+        () => api.reorderProjects(folderId, ids),
+        (server) => ({ projects: server }),
+      );
+    },
 
     deleteProject: async (id) => {
       if (get().selectedProjectId === id) set({ selectedProjectId: null, topics: [], openTopicId: null });
@@ -263,6 +309,31 @@ export const useBishopStore = create<BishopState>((set, get) => {
       return true;
     },
 
+    moveTopic: async (id, category, index) => {
+      if (id < 0) return;
+      const pid = projectId();
+      const moving = get().topics.find((t) => t.id === id);
+      if (!moving) return;
+      const column = get().topics.filter((t) => t.category === category && t.id !== id).sort(bySortOrder);
+      column.splice(Math.max(0, Math.min(index, column.length)), 0, moving);
+      const ids = column.map((t) => t.id).filter((tid) => tid > 0);
+      const order = new Map(column.map((t, i) => [t.id, i]));
+      await optimistic(
+        (s) => ({ topics: s.topics.map((t) => (order.has(t.id) ? { ...t, category, sortOrder: order.get(t.id)! } : t)) }),
+        () => api.reorderTopics(pid, category, ids),
+        // Take category/order from the server but keep local tasks (they may have pending edits).
+        (server, s) => {
+          const byId = new Map(server.map((t) => [t.id, t]));
+          return {
+            topics: s.topics.map((t) => {
+              const fresh = byId.get(t.id);
+              return fresh ? { ...t, category: fresh.category, sortOrder: fresh.sortOrder } : t;
+            }),
+          };
+        },
+      );
+    },
+
     openTopic: (id) => set({ openTopicId: id }),
 
     // ------------------------------------------------------------ tasks
@@ -308,12 +379,50 @@ export const useBishopStore = create<BishopState>((set, get) => {
       );
     },
 
+    reorderTasks: async (topicId, orderedIds) => {
+      if (topicId < 0) return;
+      const pid = projectId();
+      const order = new Map(orderedIds.map((tid, i) => [tid, i]));
+      await optimistic(
+        (s) => ({
+          topics: s.topics.map((t) =>
+            t.id === topicId ? { ...t, tasks: t.tasks.map((k) => (order.has(k.id) ? { ...k, sortOrder: order.get(k.id)! } : k)) } : t,
+          ),
+        }),
+        () => api.reorderTasks(pid, topicId, orderedIds.filter((tid) => tid > 0)),
+      );
+    },
+
+    // ----------------------------------------------------------- dialogs
+
+    confirm: ({ title, message, confirmLabel = 'Delete' }) =>
+      new Promise<boolean>((resolve) => {
+        get().confirmRequest?.resolve(false);
+        set({
+          confirmRequest: {
+            title,
+            message,
+            confirmLabel,
+            resolve: (ok) => {
+              set({ confirmRequest: null });
+              resolve(ok);
+            },
+          },
+        });
+      }),
+
     // ----------------------------------------------------------- toasts
 
     pushError: (e) => {
       const id = toastId++;
-      set((s) => ({ toasts: [...s.toasts, { id, message: message(e) }] }));
+      set((s) => ({ toasts: [...s.toasts, { id, message: message(e), kind: 'error' }] }));
       setTimeout(() => get().dismissToast(id), 5000);
+    },
+
+    pushInfo: (text) => {
+      const id = toastId++;
+      set((s) => ({ toasts: [...s.toasts, { id, message: text, kind: 'info' }] }));
+      setTimeout(() => get().dismissToast(id), 4000);
     },
 
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),

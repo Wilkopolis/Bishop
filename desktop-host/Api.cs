@@ -6,7 +6,7 @@ namespace Bishop;
 /// <summary>Minimal JSON API over <see cref="Storage"/>, plus frameless-window controls.</summary>
 public static class Api
 {
-    public static void MapBishopApi(this WebApplication app, Storage storage, Transcriber transcriber, ClaudeCli claude, Func<BishopWindow?> window)
+    public static void MapBishopApi(this WebApplication app, Storage storage, Backups backups, Transcriber transcriber, ClaudeCli claude, Func<BishopWindow?> window)
     {
         // Map storage exceptions to HTTP status codes.
         app.Use(async (ctx, next) =>
@@ -62,6 +62,12 @@ public static class Api
             var body = await ReadBody(ctx);
             return storage.UpdateProject(id, body.String("name"), body.Long("folderId"));
         });
+        // Drag and drop: place projects, in order, into a folder (null = root).
+        api.MapPost("/projects/reorder", async (HttpContext ctx) =>
+        {
+            var body = await ReadBody(ctx);
+            return storage.ReorderProjects(body.Long("folderId").Value, body.LongArray("projectIds"));
+        });
         api.MapDelete("/projects/{id:long}", (long id) =>
         {
             storage.DeleteProject(id);
@@ -74,6 +80,12 @@ public static class Api
         {
             var body = await ReadBody(ctx);
             return storage.CreateTopic(pid, body.String("title") ?? "", body.String("description"), body.String("category"));
+        });
+        // Drag and drop: the full ordered list of topics for one category column.
+        api.MapPost("/projects/{pid:long}/topics/reorder", async (long pid, HttpContext ctx) =>
+        {
+            var body = await ReadBody(ctx);
+            return storage.ReorderTopics(pid, body.String("category") ?? "", body.LongArray("topicIds"));
         });
         api.MapPatch("/projects/{pid:long}/topics/{tid:long}", async (long pid, long tid, HttpContext ctx) =>
         {
@@ -94,6 +106,11 @@ public static class Api
             var body = await ReadBody(ctx);
             return storage.AddTask(pid, tid, body.String("title") ?? "");
         });
+        api.MapPost("/projects/{pid:long}/topics/{tid:long}/tasks/reorder", async (long pid, long tid, HttpContext ctx) =>
+        {
+            var body = await ReadBody(ctx);
+            return storage.ReorderTasks(pid, tid, body.LongArray("taskIds"));
+        });
         api.MapPatch("/projects/{pid:long}/tasks/{taskId:long}", async (long pid, long taskId, HttpContext ctx) =>
         {
             var body = await ReadBody(ctx);
@@ -103,6 +120,19 @@ public static class Api
         {
             storage.DeleteTask(pid, taskId);
             return Results.NoContent();
+        });
+
+        // ---- search across all projects
+        api.MapGet("/search", (string? q) => storage.Search(q ?? ""));
+
+        // ---- backups
+        api.MapGet("/backups", () => new { folder = backups.Root, keep = Backups.Keep, backups = backups.List() });
+        api.MapPost("/backups", () => backups.BackupNow());
+        api.MapPost("/backups/open", () =>
+        {
+            Directory.CreateDirectory(backups.Root);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = backups.Root, UseShellExecute = true });
+            return Results.Json(new { ok = true });
         });
 
         // ---- voice: local Whisper transcription + Claude CLI topic drafting
@@ -190,6 +220,21 @@ public static class Api
 
         public bool? Bool(string name) =>
             TryGet(name, out var el) && el.ValueKind is JsonValueKind.True or JsonValueKind.False ? el.GetBoolean() : null;
+
+        public List<long> LongArray(string name)
+        {
+            if (!TryGet(name, out var el) || el.ValueKind != JsonValueKind.Array)
+                throw new ArgumentException($"'{name}' must be an array of ids");
+            var list = new List<long>();
+            foreach (var item in el.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Number || !item.TryGetInt64(out var n))
+                    throw new ArgumentException($"'{name}' must contain only integer ids");
+                list.Add(n);
+            }
+            if (list.Distinct().Count() != list.Count) throw new ArgumentException($"'{name}' contains duplicates");
+            return list;
+        }
 
         /// <summary>None if absent; Some(null) if explicitly null; Some(n) for a number.</summary>
         public Optional<long?> Long(string name)

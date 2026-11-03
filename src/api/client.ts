@@ -1,4 +1,4 @@
-import type { Category, Folder, Project, Task, Topic, TopicDraft, Transcription, Tree, VoiceStatus } from '../types';
+import type { BackupInfo, Category, Folder, Project, SearchHit, Task, Topic, TopicDraft, Transcription, Tree, VoiceStatus } from '../types';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -46,6 +46,8 @@ export const api = {
   updateProject: (id: number, patch: { name?: string; folderId?: number | null }) =>
     request<Project>('PATCH', `/projects/${id}`, patch),
   deleteProject: (id: number) => request<void>('DELETE', `/projects/${id}`),
+  reorderProjects: (folderId: number | null, projectIds: number[]) =>
+    request<Project[]>('POST', '/projects/reorder', { folderId, projectIds }),
 
   listTopics: (projectId: number) => request<Topic[]>('GET', `/projects/${projectId}/topics`),
   createTopic: (projectId: number, topic: { title: string; description?: string; category?: Category }) =>
@@ -55,6 +57,8 @@ export const api = {
     topicId: number,
     patch: { title?: string; description?: string; category?: Category; sortOrder?: number },
   ) => request<Topic>('PATCH', `/projects/${projectId}/topics/${topicId}`, patch),
+  reorderTopics: (projectId: number, category: Category, topicIds: number[]) =>
+    request<Topic[]>('POST', `/projects/${projectId}/topics/reorder`, { category, topicIds }),
   deleteTopic: (projectId: number, topicId: number) =>
     request<void>('DELETE', `/projects/${projectId}/topics/${topicId}`),
 
@@ -66,8 +70,16 @@ export const api = {
     request<Task>('PATCH', `/projects/${projectId}/tasks/${taskId}`, patch),
   completeTask: (projectId: number, taskId: number, completed = true) =>
     request<Task>('PATCH', `/projects/${projectId}/tasks/${taskId}`, { completed }),
+  reorderTasks: (projectId: number, topicId: number, taskIds: number[]) =>
+    request<Task[]>('POST', `/projects/${projectId}/topics/${topicId}/tasks/reorder`, { taskIds }),
   deleteTask: (projectId: number, taskId: number) =>
     request<void>('DELETE', `/projects/${projectId}/tasks/${taskId}`),
+
+  search: (q: string) => request<SearchHit[]>('GET', `/search?q=${encodeURIComponent(q)}`),
+
+  listBackups: () => request<{ folder: string; keep: number; backups: BackupInfo[] }>('GET', '/backups'),
+  backupNow: () => request<BackupInfo>('POST', '/backups'),
+  openBackupsFolder: () => request<{ ok: boolean }>('POST', '/backups/open'),
 
   voiceStatus: () => request<VoiceStatus>('GET', '/voice/status'),
   downloadModel: () => request<VoiceStatus>('POST', '/voice/model/download'),

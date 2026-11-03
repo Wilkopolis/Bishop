@@ -12,6 +12,8 @@ public record TopicDto(long Id, string Title, string Description, string Categor
 
 public record TreeDto(List<FolderDto> Folders, List<ProjectDto> Projects);
 
+public record SearchHit(long ProjectId, string ProjectName, long TopicId, string TopicTitle, string Category, string MatchKind, string Snippet);
+
 /// <summary>Thrown for missing rows; mapped to HTTP 404.</summary>
 public class NotFoundException(string message) : Exception(message);
 
@@ -21,7 +23,7 @@ public class NotFoundException(string message) : Exception(message);
 ///   projects/{n}.db     one database per project (topics + tasks)
 ///   trash/              deleted project databases (moved, not destroyed)
 /// </summary>
-public class Storage
+public partial class Storage
 {
     public static readonly string[] Categories = ["RIGHT_NOW", "SOON", "LATER", "BACKLOG"];
 
@@ -255,6 +257,26 @@ public class Storage
         return GetProject(conn, id);
     }
 
+    /// <summary>
+    /// Places the given projects, in order, in a folder (null = root). Projects not listed
+    /// keep their folder; listed ones are moved here and renumbered 0..n-1.
+    /// </summary>
+    public List<ProjectDto> ReorderProjects(long? folderId, IReadOnlyList<long> projectIds)
+    {
+        using var conn = Open(IndexPath);
+        EnsureFolderExists(conn, folderId);
+        using var tx = conn.BeginTransaction();
+        var now = Now();
+        for (int i = 0; i < projectIds.Count; i++)
+        {
+            GetProject(conn, projectIds[i]);
+            Exec(conn, "UPDATE projects SET folder_id = $f, sort_order = $s, updated_at = CASE WHEN folder_id IS $f THEN updated_at ELSE $u END WHERE id = $id",
+                ("$f", folderId), ("$s", i), ("$u", now), ("$id", projectIds[i]));
+        }
+        tx.Commit();
+        return GetTree().Projects;
+    }
+
     /// <summary>Removes the project from the index and moves its database into trash/.</summary>
     public void DeleteProject(long id)
     {
@@ -419,6 +441,45 @@ public class Storage
         TouchProject(projectId);
     }
 
+    /// <summary>Moves the listed topics into a category with sort_order 0..n-1 (used by drag and drop).</summary>
+    public List<TopicDto> ReorderTopics(long projectId, string category, IReadOnlyList<long> topicIds)
+    {
+        var cat = RequireCategory(category);
+        using var conn = OpenProject(projectId);
+        using (var tx = conn.BeginTransaction())
+        {
+            var now = Now();
+            for (int i = 0; i < topicIds.Count; i++)
+            {
+                GetTopic(conn, topicIds[i]);
+                Exec(conn, "UPDATE topics SET category = $c, sort_order = $s, updated_at = CASE WHEN category = $c THEN updated_at ELSE $u END WHERE id = $id",
+                    ("$c", cat), ("$s", i), ("$u", now), ("$id", topicIds[i]));
+            }
+            tx.Commit();
+        }
+        TouchProject(projectId);
+        return ReadTopics(conn, null);
+    }
+
+    /// <summary>Sets sort_order 0..n-1 for the listed tasks of one topic.</summary>
+    public List<TaskDto> ReorderTasks(long projectId, long topicId, IReadOnlyList<long> taskIds)
+    {
+        using var conn = OpenProject(projectId);
+        GetTopic(conn, topicId);
+        using (var tx = conn.BeginTransaction())
+        {
+            for (int i = 0; i < taskIds.Count; i++)
+            {
+                if (GetTask(conn, taskIds[i]).TopicId != topicId)
+                    throw new ArgumentException($"Task {taskIds[i]} doesn't belong to topic {topicId}");
+                Exec(conn, "UPDATE tasks SET sort_order = $s WHERE id = $id", ("$s", i), ("$id", taskIds[i]));
+            }
+            tx.Commit();
+        }
+        TouchProject(projectId);
+        return ReadTasks(conn, topicId);
+    }
+
     public List<TaskDto> ListTasks(long projectId, long topicId)
     {
         using var conn = OpenProject(projectId);
@@ -470,6 +531,77 @@ public class Storage
         GetTask(conn, taskId);
         Exec(conn, "DELETE FROM tasks WHERE id = $id", ("$id", taskId));
         TouchProject(projectId);
+    }
+}
+
+public partial class Storage
+{
+    /// <summary>Case-insensitive substring search over topic titles/descriptions and task titles in every project.</summary>
+    public List<SearchHit> Search(string query, int limit = 50)
+    {
+        query = query.Trim();
+        if (query.Length == 0) return [];
+        var pattern = "%" + query.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_") + "%";
+        var hits = new List<SearchHit>();
+
+        List<(long Id, string Name, string File)> projects = [];
+        using (var index = Open(IndexPath))
+        using (var cmd = Command(index, "SELECT id, name, file_name FROM projects ORDER BY updated_at DESC", []))
+        using (var r = cmd.ExecuteReader())
+        {
+            while (r.Read()) projects.Add((r.GetInt64(0), r.GetString(1), r.GetString(2)));
+        }
+
+        foreach (var (pid, pname, file) in projects)
+        {
+            var path = Path.Combine(ProjectsDir, file);
+            if (!File.Exists(path)) continue;
+            using var conn = Open(path);
+            const string sql = """
+                SELECT t.id, t.title, t.category,
+                       CASE WHEN t.title LIKE $q ESCAPE '\' THEN 'title'
+                            WHEN t.description LIKE $q ESCAPE '\' THEN 'description'
+                            ELSE 'task' END,
+                       CASE WHEN t.title LIKE $q ESCAPE '\' THEN t.title
+                            WHEN t.description LIKE $q ESCAPE '\' THEN t.description
+                            ELSE (SELECT k.title FROM tasks k WHERE k.topic_id = t.id AND k.title LIKE $q ESCAPE '\' ORDER BY k.sort_order LIMIT 1) END
+                FROM topics t
+                WHERE t.title LIKE $q ESCAPE '\' OR t.description LIKE $q ESCAPE '\'
+                   OR EXISTS (SELECT 1 FROM tasks k WHERE k.topic_id = t.id AND k.title LIKE $q ESCAPE '\')
+                ORDER BY CASE WHEN t.title LIKE $q ESCAPE '\' THEN 0 ELSE 1 END, t.updated_at DESC
+                LIMIT $limit
+                """;
+            using var cmd = Command(conn, sql, [("$q", pattern), ("$limit", limit - hits.Count)]);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                hits.Add(new SearchHit(pid, pname, r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), Snippet(r.IsDBNull(4) ? "" : r.GetString(4), query)));
+            if (hits.Count >= limit) break;
+        }
+        return hits;
+    }
+
+    private static string Snippet(string text, string query)
+    {
+        text = text.ReplaceLineEndings(" ");
+        if (text.Length <= 140) return text;
+        var at = Math.Max(0, text.IndexOf(query, StringComparison.OrdinalIgnoreCase));
+        var start = Math.Max(0, at - 50);
+        var len = Math.Min(140, text.Length - start);
+        return (start > 0 ? "…" : "") + text.Substring(start, len) + (start + len < text.Length ? "…" : "");
+    }
+
+    /// <summary>Consistent copies of every database via VACUUM INTO (safe while in use).</summary>
+    public string BackupTo(string folder)
+    {
+        Directory.CreateDirectory(Path.Combine(folder, "projects"));
+        using (var index = Open(IndexPath))
+            Exec(index, "VACUUM INTO $dst", ("$dst", Path.Combine(folder, "index.db")));
+        foreach (var file in Directory.EnumerateFiles(ProjectsDir, "*.db"))
+        {
+            using var conn = Open(file);
+            Exec(conn, "VACUUM INTO $dst", ("$dst", Path.Combine(folder, "projects", Path.GetFileName(file))));
+        }
+        return folder;
     }
 }
 

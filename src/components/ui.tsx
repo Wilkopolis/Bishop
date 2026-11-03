@@ -105,6 +105,53 @@ export function InlineInput({
   );
 }
 
+export function ConfirmDialog() {
+  const request = useBishopStore((s) => s.confirmRequest);
+  // Focus starts on Cancel so a stray Enter never deletes anything.
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!request) return;
+    cancelRef.current?.focus();
+    // Capture phase so Escape doesn't also close dialogs underneath.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation();
+        request.resolve(false);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [request]);
+
+  if (!request) return null;
+  return (
+    <div className="fixed inset-0 z-[65] bg-black/50 grid place-items-center p-6" onMouseDown={() => request.resolve(false)}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        data-testid="confirm-dialog"
+        className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--sidebar)] shadow-2xl p-5 flex flex-col gap-3"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <h2 id="confirm-title" className="text-base font-semibold">
+          {request.title}
+        </h2>
+        <p className="text-sm text-[var(--muted-foreground)] break-words">{request.message}</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button ref={cancelRef} className="px-3 py-1.5 text-sm rounded border border-[var(--border)] hover:bg-[var(--card)]" onClick={() => request.resolve(false)}>
+            Cancel
+          </button>
+          <button className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-500" onClick={() => request.resolve(true)}>
+            {request.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Toasts() {
   const { toasts, dismissToast } = useBishopStore();
   return (
@@ -113,7 +160,9 @@ export function Toasts() {
         <div
           key={t.id}
           role="alert"
-          className="flex items-start gap-3 max-w-sm px-3 py-2 rounded-md border border-red-800 bg-red-950/90 text-sm text-red-100 shadow-lg"
+          className={`flex items-start gap-3 max-w-sm px-3 py-2 rounded-md border text-sm shadow-lg ${
+            t.kind === 'info' ? 'border-emerald-800 bg-emerald-950/90 text-emerald-100' : 'border-red-800 bg-red-950/90 text-red-100'
+          }`}
         >
           <span className="flex-1">{t.message}</span>
           <button onClick={() => dismissToast(t.id)} title="Dismiss">
