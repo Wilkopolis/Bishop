@@ -35,6 +35,10 @@ interface BishopState {
 
   createProject: (name: string, folderId?: number | null) => Promise<void>;
   renameProject: (id: number, name: string) => Promise<void>;
+  setProjectTagline: (id: number, tagline: string | null) => Promise<void>;
+  /** Whether the overview's tagline editor is open (the sidebar menu can open it too). */
+  editingTagline: boolean;
+  setEditingTagline: (editing: boolean) => void;
   moveProject: (id: number, folderId: number | null) => Promise<void>;
   /** Drag and drop: put a project into a folder (null = root), before another project or at the end. */
   placeProject: (id: number, folderId: number | null, beforeId: number | null) => Promise<void>;
@@ -135,6 +139,8 @@ export const useBishopStore = create<BishopState>((set, get) => {
     loading: false,
     toasts: [],
     confirmRequest: null,
+    editingTagline: false,
+    setEditingTagline: (editing) => set({ editingTagline: editing }),
     searchOpen: false,
     setSearchOpen: (open) => set({ searchOpen: open }),
 
@@ -204,6 +210,15 @@ export const useBishopStore = create<BishopState>((set, get) => {
         (project, s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }),
       ),
 
+    setProjectTagline: (id, tagline) => {
+      const value = tagline?.trim() || null;
+      return optimistic(
+        (s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, tagline: value } : p)) }),
+        () => api.updateProject(id, { tagline: value }),
+        (project, s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }),
+      );
+    },
+
     moveProject: (id, folderId) =>
       optimistic(
         (s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, folderId } : p)) }),
@@ -238,7 +253,7 @@ export const useBishopStore = create<BishopState>((set, get) => {
     },
 
     selectProject: async (id) => {
-      set({ selectedProjectId: id, topics: [], openTopicId: null });
+      set({ selectedProjectId: id, topics: [], openTopicId: null, editingTagline: false });
       writeLastProject(id);
       if (id === null) return;
       try {

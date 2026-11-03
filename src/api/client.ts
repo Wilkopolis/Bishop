@@ -43,7 +43,7 @@ export const api = {
 
   createProject: (name: string, folderId: number | null = null) =>
     request<Project>('POST', '/projects', { name, folderId }),
-  updateProject: (id: number, patch: { name?: string; folderId?: number | null }) =>
+  updateProject: (id: number, patch: { name?: string; folderId?: number | null; tagline?: string | null }) =>
     request<Project>('PATCH', `/projects/${id}`, patch),
   deleteProject: (id: number) => request<void>('DELETE', `/projects/${id}`),
   reorderProjects: (folderId: number | null, projectIds: number[]) =>

@@ -16,7 +16,11 @@ export interface Project {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  /** Optional one-line description shown next to the project title (max 200 chars). */
+  tagline: string | null;
 }
+
+export const MAX_TAGLINE_LENGTH = 200;
 
 export interface Task {
   id: number;

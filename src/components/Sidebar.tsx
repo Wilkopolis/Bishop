@@ -65,7 +65,7 @@ function DraftRow({ depth }: { depth: number }) {
 }
 
 function ProjectRow({ project, depth }: { project: Project; depth: number }) {
-  const { selectedProjectId, selectProject, renameProject, moveProject, deleteProject, folders, confirm } = useBishopStore();
+  const { selectedProjectId, selectProject, renameProject, moveProject, deleteProject, folders, confirm, setEditingTagline } = useBishopStore();
   const { editing, setEditing, openMenu } = useContext(Ctx);
   const selected = selectedProjectId === project.id;
   const drag = useDraggable({ id: `p${project.id}` });
@@ -81,6 +81,13 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
 
   const menu: MenuItem[] = [
     { label: 'Rename', onSelect: () => setEditing({ kind: 'project', id: project.id }) },
+    {
+      label: project.tagline ? 'Edit tagline' : 'Add tagline',
+      onSelect: async () => {
+        if (selectedProjectId !== project.id) await selectProject(project.id);
+        setEditingTagline(true);
+      },
+    },
     {
       label: 'Move to',
       children: [

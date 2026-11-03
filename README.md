@@ -106,7 +106,7 @@ Window state (`window.json`) and the WebView2 profile always live in `%LOCALAPPD
 | table    | columns |
 |----------|---------|
 | folders  | id, name, parent_id → folders, sort_order, created_at |
-| projects | id, name, folder_id → folders, file_name, sort_order, created_at, updated_at |
+| projects | id, name, folder_id → folders, file_name, sort_order, created_at, updated_at, tagline (nullable, ≤200 chars; added in schema v2) |
 
 **projects/&lt;guid&gt;.db**
 
@@ -127,8 +127,8 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | POST   | `/api/folders` | `{ name, parentId? }` |
 | PATCH  | `/api/folders/{id}` | `{ name?, parentId? }` (`parentId: null` moves to root) |
 | DELETE | `/api/folders/{id}` | children move up to the parent folder |
-| POST   | `/api/projects` | `{ name, folderId? }` |
-| PATCH  | `/api/projects/{id}` | `{ name?, folderId? }` |
+| POST   | `/api/projects` | `{ name, folderId?, tagline? }` |
+| PATCH  | `/api/projects/{id}` | `{ name?, folderId?, tagline? }` (tagline: trimmed, blank or `null` clears, >200 chars → 400) |
 | POST   | `/api/projects/reorder` | `{ folderId, projectIds }`: puts these projects, in order, into a folder (null = root) |
 | DELETE | `/api/projects/{id}` | project db moved to `trash\` |
 | GET    | `/api/projects/{pid}/topics` | topics, each with `tasks` |

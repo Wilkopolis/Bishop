@@ -55,12 +55,12 @@ public static class Api
         api.MapPost("/projects", async (HttpContext ctx) =>
         {
             var body = await ReadBody(ctx);
-            return storage.CreateProject(body.String("name") ?? "", body.Long("folderId").Value);
+            return storage.CreateProject(body.String("name") ?? "", body.Long("folderId").Value, body.String("tagline"));
         });
         api.MapPatch("/projects/{id:long}", async (long id, HttpContext ctx) =>
         {
             var body = await ReadBody(ctx);
-            return storage.UpdateProject(id, body.String("name"), body.Long("folderId"));
+            return storage.UpdateProject(id, body.String("name"), body.Long("folderId"), body.OptionalString("tagline"));
         });
         // Drag and drop: place projects, in order, into a folder (null = root).
         api.MapPost("/projects/reorder", async (HttpContext ctx) =>
@@ -234,6 +234,15 @@ public static class Api
             }
             if (list.Distinct().Count() != list.Count) throw new ArgumentException($"'{name}' contains duplicates");
             return list;
+        }
+
+        /// <summary>None if absent; Some(null) if explicitly null; Some(s) for a string.</summary>
+        public Optional<string?> OptionalString(string name)
+        {
+            if (!TryGet(name, out var el)) return Optional<string?>.None;
+            if (el.ValueKind == JsonValueKind.Null) return Optional<string?>.Some(null);
+            if (el.ValueKind == JsonValueKind.String) return Optional<string?>.Some(el.GetString());
+            throw new ArgumentException($"'{name}' must be a string or null");
         }
 
         /// <summary>None if absent; Some(null) if explicitly null; Some(n) for a number.</summary>

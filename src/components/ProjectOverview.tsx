@@ -21,7 +21,7 @@ import {
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { bySortOrder, useBishopStore } from '../store/useBishopStore';
-import { CATEGORIES, type Category, type Topic } from '../types';
+import { CATEGORIES, MAX_TAGLINE_LENGTH, type Category, type Project, type Topic } from '../types';
 import { CATEGORY_ACCENTS, CATEGORY_LABELS } from './categories';
 import { InlineInput } from './ui';
 import { VoiceTopic } from './VoiceTopic';
@@ -283,6 +283,72 @@ function Board({ topics }: { topics: Topic[] }) {
   );
 }
 
+/** Tagline next to the project title: click to edit; Enter/blur saves, Escape cancels. */
+function ProjectTagline({ project }: { project: Project }) {
+  const { setProjectTagline, editingTagline, setEditingTagline } = useBishopStore();
+  const [value, setValue] = useState('');
+  // Enter, Escape and blur can all end an edit; only the first one counts.
+  const done = useRef(false);
+
+  useEffect(() => {
+    if (editingTagline) {
+      done.current = false;
+      setValue(project.tagline ?? '');
+    }
+  }, [editingTagline, project.id]);
+
+  if (editingTagline) {
+    const finish = (save: boolean) => {
+      if (done.current) return;
+      done.current = true;
+      setEditingTagline(false);
+      if (!save) return;
+      const next = value.trim() || null;
+      if (next !== (project.tagline ?? null)) setProjectTagline(project.id, next);
+    };
+    return (
+      <div className="flex items-center gap-2 flex-1 basis-60 min-w-60">
+        <input
+          autoFocus
+          aria-label="Project tagline"
+          maxLength={MAX_TAGLINE_LENGTH}
+          placeholder="A short tagline for this project"
+          className="flex-1 min-w-0 px-2 py-1 text-sm rounded bg-[var(--card)] border border-[var(--border)] outline-none focus:border-[var(--primary)] select-text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') finish(true);
+            if (e.key === 'Escape') finish(false);
+          }}
+          onBlur={() => finish(true)}
+        />
+        <span className={`shrink-0 text-xs tabular-nums ${value.length >= MAX_TAGLINE_LENGTH ? 'text-[var(--primary-text)]' : 'text-[var(--muted-foreground)]'}`}>
+          {value.length}/{MAX_TAGLINE_LENGTH}
+        </span>
+      </div>
+    );
+  }
+
+  return project.tagline ? (
+    <button
+      data-testid="project-tagline"
+      title={project.tagline}
+      className="flex-1 basis-60 min-w-60 text-left truncate text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded"
+      onClick={() => setEditingTagline(true)}
+    >
+      {project.tagline}
+    </button>
+  ) : (
+    <button
+      data-testid="project-tagline-add"
+      className="flex-1 basis-60 min-w-60 text-left text-sm text-[var(--muted-foreground)] opacity-0 group-hover/title:opacity-60 focus-visible:opacity-60 transition-opacity rounded"
+      onClick={() => setEditingTagline(true)}
+    >
+      Add a tagline
+    </button>
+  );
+}
+
 export function ProjectOverview() {
   const { projects, selectedProjectId, topics } = useBishopStore();
   const project = projects.find((p) => p.id === selectedProjectId);
@@ -300,7 +366,10 @@ export function ProjectOverview() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-5 gap-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold truncate">{project.name}</h1>
+        <div className="group/title flex flex-wrap items-baseline gap-x-3 gap-y-1 flex-1 min-w-0">
+          <h1 className="text-xl font-semibold truncate max-w-full">{project.name}</h1>
+          <ProjectTagline project={project} />
+        </div>
         <button
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:brightness-110"
           title="Record a voice note and turn it into a topic"
