@@ -33,6 +33,16 @@ export interface FolderStatus {
   isFile: boolean;
 }
 
+export interface TerminalInfo {
+  id: string;
+  projectId: number;
+  kind: 'claude' | 'shell';
+  title: string;
+  cwd: string;
+  alive: boolean;
+  exitCode: number | null;
+}
+
 export interface AgentsFile {
   path: string;
   exists: boolean;

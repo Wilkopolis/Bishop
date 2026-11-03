@@ -36,6 +36,9 @@ ICONS = {
     'Trash2': ('trash', 'bold'),
     'UploadSimple': ('upload-simple', 'bold'),
     'WarningCircle': ('warning-circle', 'bold'),
+    'TerminalWindow': ('terminal-window', 'bold'),
+    'ArrowClockwise': ('arrow-clockwise', 'bold'),
+    'CaretDown': ('caret-down', 'bold'),
     'X': ('x', 'bold'),
 }
 

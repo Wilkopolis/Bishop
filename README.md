@@ -44,6 +44,7 @@ Produces a self-contained win-x64 folder in `release\publish\Bishop-<version>-wi
 - **Tasks:** in a topic, drag the grip handle (or focus it, Space, arrows, Space) to reorder.
 - **Search:** Ctrl+K or Ctrl+F searches topic titles, descriptions and task titles in every project. Arrow keys + Enter open the topic.
 - **Voice topic:** the mic button on a project records a note, transcribes it locally, and asks Claude for a draft topic you edit before saving.
+- **Terminal:** Ctrl+` (or *Terminal* in the title bar) opens a panel at the bottom running the interactive `claude` CLI in the selected project's folder, so it reads that folder's `AGENTS.md`. It's a real pseudo-terminal (Windows ConPTY + xterm.js). Each project keeps its own session while you switch projects; *Restart* starts it again and *New ▾* opens a fresh Claude or PowerShell session. Drag the top edge to resize (remembered). Ctrl+C copies a selection (otherwise it goes to the program), Ctrl+Shift+C / Ctrl+Shift+V copy and paste, right-click copies or pastes; links open in your browser. Claude's normal permission prompts apply (Bishop passes no permission flags). Terminal processes are in a Windows Job Object, so they're killed with Bishop, even if it crashes.
 - **Backups:** the gear icon in the sidebar has *Back up now*, *Open backups folder*, and shows the last backup.
 
 ## Backups & restore
@@ -137,6 +138,10 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | GET    | `/api/project-folders/status?path=` | `{ path, exists, hasAgents, isFile }` |
 | POST   | `/api/system/pick-folder` | `{ initial?, title? }` → native folder picker → `{ path \| null }` |
 | POST   | `/api/projects/{id}/open-folder` | opens the project folder in Explorer |
+| GET    | `/api/terminal/sessions?projectId=` | terminal sessions `{ id, projectId, kind, title, cwd, alive, exitCode }` |
+| POST   | `/api/terminal/sessions` | `{ projectId, kind: "claude" \| "shell", cols, rows }` → starts a session in the project folder |
+| DELETE | `/api/terminal/sessions/{id}` | ends the session and its processes |
+| WS     | `/api/terminal/ws/{id}` | loopback origins only. Client → `{type:"input",data}` / `{type:"resize",cols,rows}`; server → `replay` (scrollback on attach), `output`, `exit` |
 | GET    | `/api/projects/{id}/agents` | `{ path, exists, content, hash }` |
 | PUT    | `/api/projects/{id}/agents` | `{ content, baseHash, force? }`: 409 `changed_on_disk` if the file changed since it was loaded |
 | POST   | `/api/projects/reorder` | `{ folderId, projectIds }`: puts these projects, in order, into a folder (null = root) |

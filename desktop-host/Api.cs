@@ -6,7 +6,7 @@ namespace Bishop;
 /// <summary>Minimal JSON API over <see cref="Storage"/>, plus frameless-window controls.</summary>
 public static class Api
 {
-    public static void MapBishopApi(this WebApplication app, Storage storage, Backups backups, Transcriber transcriber, ClaudeCli claude, AppSettings settings, Func<BishopWindow?> window)
+    public static void MapBishopApi(this WebApplication app, Storage storage, Backups backups, Transcriber transcriber, ClaudeCli claude, AppSettings settings, Terminals terminals, Func<BishopWindow?> window)
     {
         // Map storage exceptions to HTTP status codes.
         app.Use(async (ctx, next) =>
@@ -77,6 +77,48 @@ public static class Api
             return storage.UpdateProject(id, body.String("name"), body.Long("folderId"), body.OptionalString("tagline"), folderPath);
         });
 
+        // ---- terminal: claude (or PowerShell) in a pseudo-console, streamed over a WebSocket
+        api.MapGet("/terminal/sessions", (long? projectId) => terminals.List(projectId));
+        api.MapPost("/terminal/sessions", async (HttpContext ctx) =>
+        {
+            var body = await ReadBody(ctx);
+            var projectId = body.Long("projectId").Value ?? throw new ArgumentException("projectId is required");
+            var project = storage.GetProject(projectId);
+            var folder = RequireFolder(storage, projectId);
+            var kind = body.String("kind") == "shell" ? TerminalKind.Shell : TerminalKind.Claude;
+            var cols = (int)(body.Long("cols").Value ?? 100);
+            var rows = (int)(body.Long("rows").Value ?? 30);
+            return await terminals.StartAsync(projectId, project.Name, folder, kind, cols, rows);
+        });
+        api.MapDelete("/terminal/sessions/{id}", (string id) =>
+        {
+            terminals.Close(id);
+            return Results.NoContent();
+        });
+        api.Map("/terminal/ws/{id}", async (string id, HttpContext ctx) =>
+        {
+            if (!ctx.WebSockets.IsWebSocketRequest)
+            {
+                ctx.Response.StatusCode = 400;
+                return;
+            }
+            // Only Bishop's own pages (loopback origins) may attach to a terminal.
+            if (!IsLocalOrigin(ctx))
+            {
+                Log.Info($"Rejected terminal WebSocket from origin '{ctx.Request.Headers.Origin}'");
+                ctx.Response.StatusCode = 403;
+                return;
+            }
+            var session = terminals.Get(id);
+            if (session is null)
+            {
+                ctx.Response.StatusCode = 404;
+                return;
+            }
+            using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
+            await session.AttachAsync(socket, ctx.RequestAborted);
+        });
+
         // ---- project working folders
         api.MapGet("/project-folders/suggest", (string? name) =>
             new { root = settings.ProjectsRoot, path = ProjectFolders.Suggest(settings.ProjectsRoot, name) });
@@ -119,6 +161,7 @@ public static class Api
         });
         api.MapDelete("/projects/{id:long}", (long id) =>
         {
+            terminals.CloseForProject(id);
             storage.DeleteProject(id);
             return Results.NoContent();
         });
@@ -263,6 +306,16 @@ public static class Api
             }
             return Results.Json(new { ok = true });
         });
+    }
+
+    private static bool IsLocalOrigin(HttpContext ctx)
+    {
+        if (ctx.Connection.RemoteIpAddress is { } ip && !System.Net.IPAddress.IsLoopback(ip)) return false;
+        var origin = ctx.Request.Headers.Origin.ToString();
+        if (string.IsNullOrEmpty(origin)) return false;
+        return Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+            && uri.Scheme == "http"
+            && (uri.Host == "127.0.0.1" || uri.Host == "localhost");
     }
 
     private static string RequireFolder(Storage storage, long projectId)

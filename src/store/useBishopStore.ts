@@ -25,6 +25,9 @@ interface BishopState {
   loading: boolean;
   toasts: Toast[];
   confirmRequest: ConfirmRequest | null;
+  /** Bottom terminal panel (remembered across restarts). */
+  terminalOpen: boolean;
+  setTerminalOpen: (open: boolean) => void;
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
 
@@ -164,6 +167,19 @@ export const useBishopStore = create<BishopState>((set, get) => {
     setAgentsEditorFor: (id) => set({ agentsEditorFor: id }),
     uploadingImage: [],
     setEditingTagline: (editing) => set({ editingTagline: editing }),
+    terminalOpen: (() => {
+      try {
+        return localStorage.getItem('bishop_terminal_open') === '1';
+      } catch {
+        return false;
+      }
+    })(),
+    setTerminalOpen: (open) => {
+      try {
+        localStorage.setItem('bishop_terminal_open', open ? '1' : '0');
+      } catch {}
+      set({ terminalOpen: open });
+    },
     searchOpen: false,
     setSearchOpen: (open) => set({ searchOpen: open }),
 

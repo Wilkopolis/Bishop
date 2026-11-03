@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Copy, Minus, Square, X } from './icons';
+import { Copy, Minus, Square, TerminalWindow, X } from './icons';
 import { windowApi } from '../api/client';
 import { BishopLogo } from './BishopLogo';
+import { useBishopStore } from '../store/useBishopStore';
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -35,6 +36,7 @@ export function TitleBar() {
         <span className="font-semibold tracking-tight text-[13px] leading-none text-[var(--foreground)]">Bishop</span>
       </div>
       <div className="flex h-full">
+        <TerminalToggle />
         <button className="w-11 h-full grid place-items-center hover:bg-[var(--card)]" onClick={() => windowApi.minimize()} title="Minimize">
           <Minus size={14} />
         </button>
@@ -46,6 +48,20 @@ export function TitleBar() {
         </button>
       </div>
     </div>
+  );
+}
+
+function TerminalToggle() {
+  const { terminalOpen, setTerminalOpen } = useBishopStore();
+  return (
+    <button
+      className={`h-full px-3 flex items-center gap-1.5 text-xs hover:bg-[var(--card)] ${terminalOpen ? 'text-[var(--primary-text)]' : 'text-[var(--muted-foreground)]'}`}
+      title="Terminal (Ctrl+`)"
+      aria-pressed={terminalOpen}
+      onClick={() => setTerminalOpen(!terminalOpen)}
+    >
+      <TerminalWindow size={15} /> Terminal
+    </button>
   );
 }
 

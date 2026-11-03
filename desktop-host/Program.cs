@@ -10,6 +10,36 @@ public class Program
     private const int DesktopPortStart = 45901;
     private const int DevApiPort = 45900;
 
+    /// <summary>
+    /// If Bishop was started from inside a Claude Code session, it inherits that session's markers
+    /// (session ids, messaging socket/token, child-session flags). Passed on, they make the terminal's
+    /// claude behave like a sub-session. Remove them; user configuration variables are left alone.
+    /// </summary>
+    private static void ScrubInheritedClaudeSession()
+    {
+        var env = Environment.GetEnvironmentVariables();
+        if (!env.Contains("CLAUDECODE") && !env.Contains("CLAUDE_CODE_SESSION_ID")) return;
+        string[] prefixes =
+        [
+            "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "CLAUDE_PREVIEW_", "CLAUDE_AGENT_SDK_",
+            "CLAUDE_CODE_SESSION", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_HOST_SESSION", "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_MESSAGING_", "CLAUDE_CODE_SDK_", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_DESKTOP_APP_",
+            "CLAUDE_CODE_OAUTH_", "CLAUDE_CODE_ACCOUNT_", "CLAUDE_CODE_USER_EMAIL", "CLAUDE_CODE_ORGANIZATION_",
+            "CLAUDE_CODE_EMIT_", "CLAUDE_CODE_ENABLE_", "CLAUDE_CODE_DISABLE_CRON", "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+            "CLAUDE_CODE_SIMPLE", "CLAUDE_CODE_EAGER_FLUSH", "CLAUDE_CODE_STARTUP_", "CLAUDE_CODE_TERMINAL_MCP_",
+        ];
+        var removed = 0;
+        foreach (var key in env.Keys.Cast<string>().ToList())
+        {
+            if (prefixes.Any(p => key.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+            {
+                Environment.SetEnvironmentVariable(key, null);
+                removed++;
+            }
+        }
+        Log.Info($"Started from inside a Claude Code session; cleared {removed} inherited session variables");
+    }
+
     private static int PickPort(int start)
     {
         for (int candidate = start; candidate <= start + 10; candidate++)
@@ -52,6 +82,7 @@ public class Program
         bool apiOnly = args.Contains("--api-only");
 
         Directory.CreateDirectory(AppSettings.AppDataDir);
+        ScrubInheritedClaudeSession();
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Info($"Unhandled exception: {e.ExceptionObject}");
         TaskScheduler.UnobservedTaskException += (_, e) => Log.Info($"Unobserved task exception: {e.Exception}");
         var settings = AppSettings.Load(args);
@@ -60,6 +91,7 @@ public class Program
         _ = Task.Run(backups.RunDailyIfDue);
         var transcriber = new Transcriber(settings.WhisperModelName, settings.WhisperModelPath);
         var claude = new ClaudeCli(settings.ClaudePath, settings.ClaudeModel);
+        using var terminals = new Terminals(claude);
         Log.Info($"Bishop starting; data={settings.DataRoot}; model={settings.WhisperModelPath}; claude={claude.Resolve() ?? "(not found)"}");
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [] });
@@ -68,7 +100,8 @@ public class Program
         builder.WebHost.UseKestrel(options => options.Listen(IPAddress.Loopback, port));
 
         var app = builder.Build();
-        app.MapBishopApi(storage, backups, transcriber, claude, settings, () => MainWindow);
+        app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
+        app.MapBishopApi(storage, backups, transcriber, claude, settings, terminals, () => MainWindow);
 
         // Serve the embedded Vite build (dist/ -> wwwroot/*) with SPA fallback to index.html.
         var asm = Assembly.GetExecutingAssembly();

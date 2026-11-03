@@ -1,4 +1,4 @@
-import type { AgentsFile, BackupInfo, Category, Folder, FolderStatus, Project, SearchHit, Task, Topic, TopicDraft, Transcription, Tree, VoiceStatus } from '../types';
+import type { AgentsFile, TerminalInfo, BackupInfo, Category, Folder, FolderStatus, Project, SearchHit, Task, Topic, TopicDraft, Transcription, Tree, VoiceStatus } from '../types';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -85,6 +85,11 @@ export const api = {
   getAgents: (id: number) => request<AgentsFile>('GET', `/projects/${id}/agents`),
   saveAgents: (id: number, content: string, baseHash: string, force = false) =>
     request<AgentsFile>('PUT', `/projects/${id}/agents`, { content, baseHash, force }),
+
+  listTerminals: (projectId: number) => request<TerminalInfo[]>('GET', `/terminal/sessions?projectId=${projectId}`),
+  startTerminal: (projectId: number, kind: 'claude' | 'shell', cols: number, rows: number) =>
+    request<TerminalInfo>('POST', '/terminal/sessions', { projectId, kind, cols, rows }),
+  closeTerminal: (id: string) => request<void>('DELETE', `/terminal/sessions/${id}`),
 
   search: (q: string) => request<SearchHit[]>('GET', `/search?q=${encodeURIComponent(q)}`),
 

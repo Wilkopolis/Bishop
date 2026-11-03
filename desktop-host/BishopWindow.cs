@@ -180,12 +180,20 @@ public class BishopWindow : Form
             // Allow the app's own page to use the microphone (voice-to-topic); deny everything else.
             _webView.CoreWebView2.PermissionRequested += (_, args) =>
             {
-                if (args.PermissionKind == CoreWebView2PermissionKind.Microphone &&
+                if (args.PermissionKind is CoreWebView2PermissionKind.Microphone or CoreWebView2PermissionKind.ClipboardRead &&
                     args.Uri.StartsWith(_appUrl, StringComparison.OrdinalIgnoreCase))
                 {
                     args.State = CoreWebView2PermissionState.Allow;
                     args.SavesInProfile = true;
                 }
+            };
+
+            // Links (e.g. clicked in the terminal) open in the default browser; never inside Bishop.
+            _webView.CoreWebView2.NewWindowRequested += (_, args) =>
+            {
+                args.Handled = true;
+                if (Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                    Process.Start(new ProcessStartInfo { FileName = uri.AbsoluteUri, UseShellExecute = true });
             };
 
             _webView.Source = new Uri(_appUrl);
