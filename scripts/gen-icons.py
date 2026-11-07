@@ -28,6 +28,7 @@ ICONS = {
     'MoreHorizontal': ('dots-three', 'bold'),
     'NotebookText': ('notebook', 'bold'),
     'Plus': ('plus', 'bold'),
+    'Queue': ('queue', 'bold'),
     'Search': ('magnifying-glass', 'bold'),
     'Settings': ('gear-six', 'bold'),
     'Sparkles': ('sparkle', 'bold'),
@@ -37,10 +38,15 @@ ICONS = {
     'UploadSimple': ('upload-simple', 'bold'),
     'WarningCircle': ('warning-circle', 'bold'),
     'TerminalWindow': ('terminal-window', 'bold'),
+    'ChartBar': ('chart-bar', 'bold'),
     'ArrowClockwise': ('arrow-clockwise', 'bold'),
     'CaretDown': ('caret-down', 'bold'),
     'ArrowRight': ('arrow-right', 'bold'),
+    'Archive': ('archive', 'bold'),
+    'ArrowUUpLeft': ('arrow-u-up-left', 'bold'),
     'X': ('x', 'bold'),
+    'Bell': ('bell', 'bold'),
+    'BellSlash': ('bell-slash', 'bold'),
 }
 
 root = Path(sys.argv[1])

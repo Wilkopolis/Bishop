@@ -3,9 +3,13 @@ import { ResizeHandles, TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
 import { ProjectOverview } from './components/ProjectOverview';
 import { TopicDetail } from './components/TopicDetail';
+import { RefineTopicDialog } from './components/RefineTopicDialog';
 import { ConfirmDialog, Toasts } from './components/ui';
 import { SearchDialog } from './components/SearchDialog';
+import { ChartsDialog } from './components/ChartsDialog';
+import { DelegationDialog } from './components/DelegationDialog';
 import { AgentsEditor, ChangeFolderDialog, NewProjectDialog } from './components/ProjectFolder';
+import { ProjectIconDialog } from './components/ProjectIcon';
 import { TerminalPanel } from './components/TerminalPanel';
 import { useBishopStore } from './store/useBishopStore';
 
@@ -13,10 +17,31 @@ export default function App() {
   const loadTree = useBishopStore((s) => s.loadTree);
   const setSearchOpen = useBishopStore((s) => s.setSearchOpen);
   const setTerminalOpen = useBishopStore((s) => s.setTerminalOpen);
+  const refreshTopics = useBishopStore((s) => s.refreshTopics);
+  const refreshActiveTasks = useBishopStore((s) => s.refreshActiveTasks);
+  const selectedProjectId = useBishopStore((s) => s.selectedProjectId);
 
   useEffect(() => {
     loadTree();
   }, [loadTree]);
+
+  // Claude ticks tasks through the API, and its session keeps running while the Terminal is hidden,
+  // so pick that up whether or not the panel is open.
+  useEffect(() => {
+    if (selectedProjectId === null) return;
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      refreshTopics();
+      refreshActiveTasks();
+    };
+    refreshActiveTasks();
+    const timer = setInterval(tick, 3000);
+    window.addEventListener('focus', tick);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', tick);
+    };
+  }, [selectedProjectId, refreshTopics, refreshActiveTasks]);
 
   // Ctrl+` toggles the terminal from anywhere. Ctrl+K / Ctrl+F open search (WebView2's own find bar
   // is replaced by ours), but not while the terminal has focus: those keys belong to the program there.
@@ -49,9 +74,13 @@ export default function App() {
         </main>
       </div>
       <TopicDetail />
+      <RefineTopicDialog />
       <SearchDialog />
+      <ChartsDialog />
+      <DelegationDialog />
       <NewProjectDialog />
       <ChangeFolderDialog />
+      <ProjectIconDialog />
       <AgentsEditor />
       <ConfirmDialog />
       <Toasts />

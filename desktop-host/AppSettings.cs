@@ -12,7 +12,8 @@ namespace Bishop;
 ///   model name       -                 -                      "whisperModel"      (default large-v3-turbo)
 ///   claude CLI       --claude          BISHOP_CLAUDE_PATH     "claudePath"
 ///   claude model     -                 -                      "claudeModel"
-///   projects root    --projects-root   BISHOP_PROJECTS_ROOT   "projectsRoot"      (default Documents\Bishop; where new project folders are suggested)
+///   antigravity CLI  --antigravity     BISHOP_ANTIGRAVITY_PATH "antigravityPath"
+///   projects root    --projects-root  BISHOP_PROJECTS_ROOT   "projectsRoot"      (default Documents\Bishop; where new project folders are suggested)
 /// </summary>
 public sealed class AppSettings
 {
@@ -26,6 +27,7 @@ public sealed class AppSettings
     public required string WhisperModelPath { get; init; }
     public string? ClaudePath { get; init; }
     public string? ClaudeModel { get; init; }
+    public string? AntigravityPath { get; init; }
     public required string ProjectsRoot { get; init; }
 
     public static AppSettings Load(string[] args)
@@ -59,6 +61,7 @@ public sealed class AppSettings
             WhisperModelPath = modelPath,
             ClaudePath = Pick("--claude", "BISHOP_CLAUDE_PATH", "claudePath") is { } c ? FullPath(c) : null,
             ClaudeModel = json.GetValueOrDefault("claudeModel"),
+            AntigravityPath = Pick("--antigravity", "BISHOP_ANTIGRAVITY_PATH", "antigravityPath") is { } a ? FullPath(a) : null,
             ProjectsRoot = Pick("--projects-root", "BISHOP_PROJECTS_ROOT", "projectsRoot") is { } pr
                 ? FullPath(pr)
                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Bishop"),
@@ -84,21 +87,61 @@ public sealed class AppSettings
     }
 }
 
-/// <summary>Simple append-only log at %LOCALAPPDATA%\Bishop\bishop.log.</summary>
+/// <summary>
+/// Rolling log at %LOCALAPPDATA%\Bishop\bishop.log. At 5 MB it rolls to bishop.1.log (then .2, .3);
+/// the oldest is dropped. Lines look like: time LEVEL [source] message.
+/// </summary>
 public static class Log
 {
+    private const long MaxBytes = 5 * 1024 * 1024;
+    private const int Keep = 3;
+    private const int MaxMessage = 8000;
     private static readonly object Gate = new();
     private static readonly string LogPath = Path.Combine(AppSettings.AppDataDir, "bishop.log");
 
-    public static void Info(string message)
+    public static void Info(string message, string source = "host") => Write("INFO", source, message);
+    public static void Warn(string message, string source = "host") => Write("WARN", source, message);
+    public static void Error(string message, Exception? ex = null, string source = "host") =>
+        Write("ERROR", source, ex is null ? message : $"{message}: {ex}");
+
+    /// <summary>Writes a line at a level given as text ("debug", "info", "warn", "error"). Used for UI reports.</summary>
+    public static void FromText(string? level, string source, string message)
     {
-        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}";
+        var l = (level ?? "info").ToLowerInvariant() switch
+        {
+            "error" => "ERROR",
+            "warn" or "warning" => "WARN",
+            "debug" => "DEBUG",
+            _ => "INFO",
+        };
+        Write(l, source, message);
+    }
+
+    private static void Write(string level, string source, string message)
+    {
+        if (message.Length > MaxMessage) message = message[..MaxMessage] + "...(truncated)";
+        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {level,-5} [{source}] {message}";
         Console.WriteLine(line);
         try
         {
-            lock (Gate) File.AppendAllText(LogPath, line + Environment.NewLine);
+            lock (Gate)
+            {
+                Roll();
+                File.AppendAllText(LogPath, line + Environment.NewLine);
+            }
         }
         catch { }
+    }
+
+    private static void Roll()
+    {
+        var info = new FileInfo(LogPath);
+        if (!info.Exists || info.Length < MaxBytes) return;
+        string Name(int n) => Path.Combine(AppSettings.AppDataDir, $"bishop.{n}.log");
+        if (File.Exists(Name(Keep))) File.Delete(Name(Keep));
+        for (var i = Keep - 1; i >= 1; i--)
+            if (File.Exists(Name(i))) File.Move(Name(i), Name(i + 1));
+        File.Move(LogPath, Name(1));
     }
 }
 

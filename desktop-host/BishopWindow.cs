@@ -24,10 +24,18 @@ public class BishopWindow : Form
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
     private const int WM_NCLBUTTONDOWN = 0x00A1;
     private const int HT_CAPTION = 0x0002;
     private const int WM_GETMINMAXINFO = 0x0024;
     private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+    private const uint FLASHW_TRAY = 0x00000002;
+    private const uint FLASHW_TIMERNOFG = 0x0000000C;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
@@ -62,6 +70,16 @@ public class BishopWindow : Form
         public RECT rcMonitor;
         public RECT rcWork;
         public int dwFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FLASHWINFO
+    {
+        public uint cbSize;
+        public IntPtr hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
     }
 
     private readonly WebView2 _webView;
@@ -327,6 +345,35 @@ public class BishopWindow : Form
             : FormWindowState.Maximized;
         NotifyWebViewMaximizeState();
         return WindowState == FormWindowState.Maximized;
+    }
+
+    /// <summary>Silent mode: set from the UI's top bar. While on, the taskbar never flashes.</summary>
+    public static volatile bool SilentMode;
+
+    /// <summary>
+    /// Flashes the taskbar icon until the user comes back to Bishop. Does nothing while Bishop is
+    /// the foreground window, since the user can already see it. Safe to call from any thread.
+    /// </summary>
+    public void FlashTaskbarIfIdle()
+    {
+        if (SilentMode) return;
+        if (IsDisposed || !IsHandleCreated) return;
+        if (InvokeRequired)
+        {
+            // The window can close between the check above and this call.
+            try { BeginInvoke(new Action(FlashTaskbarIfIdle)); }
+            catch (InvalidOperationException) { }
+            return;
+        }
+        if (GetForegroundWindow() == Handle) return;
+
+        var info = new FLASHWINFO
+        {
+            cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(),
+            hwnd = Handle,
+            dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG,
+        };
+        FlashWindowEx(ref info);
     }
 
     /// <summary>Shows the native folder picker (modal to this window). Returns null if cancelled.</summary>

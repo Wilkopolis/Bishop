@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, X } from './icons';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronRight, X } from './icons';
 import { useBishopStore } from '../store/useBishopStore';
 
 export interface MenuItem {
@@ -7,6 +7,8 @@ export interface MenuItem {
   onSelect?: () => void;
   danger?: boolean;
   disabled?: boolean;
+  /** The current choice, in a menu used as a dropdown. */
+  checked?: boolean;
   children?: MenuItem[];
 }
 
@@ -28,6 +30,7 @@ function MenuList({ items, onClose }: { items: MenuItem[]; onClose: () => void }
             }}
           >
             <span className="truncate">{item.label}</span>
+            {item.checked && <Check size={13} />}
             {item.children && <ChevronRight size={13} />}
           </button>
           {item.children && openSub === i && (
@@ -44,6 +47,15 @@ function MenuList({ items, onClose }: { items: MenuItem[]; onClose: () => void }
 /** Fixed-position context menu; closes on outside click, Escape, or selection. */
 export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [left, setLeft] = useState(x);
+  const [top, setTop] = useState(y);
+  // A long menu opened low on the window, like one from the Terminal header, moves up to fit. One opened near the right edge moves left.
+  useLayoutEffect(() => {
+    const height = ref.current?.offsetHeight ?? 0;
+    const width = ref.current?.offsetWidth ?? 0;
+    setTop(Math.max(8, Math.min(y, window.innerHeight - height - 8)));
+    setLeft(Math.max(8, Math.min(x, window.innerWidth - width - 8)));
+  }, [x, y, items]);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
@@ -58,7 +70,7 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
   }, [onClose]);
 
   return (
-    <div ref={ref} className="fixed z-[60]" style={{ left: x, top: y }}>
+    <div ref={ref} className="fixed z-[60]" style={{ left, top }}>
       <MenuList items={items} onClose={onClose} />
     </div>
   );
@@ -68,12 +80,14 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
 export function InlineInput({
   initial = '',
   placeholder,
+  maxLength,
   onCommit,
   onCancel,
   className = '',
 }: {
   initial?: string;
   placeholder?: string;
+  maxLength?: number;
   onCommit: (value: string) => void;
   onCancel: () => void;
   className?: string;
@@ -93,6 +107,7 @@ export function InlineInput({
       onFocus={(e) => e.currentTarget.select()}
       className={`w-full px-2 py-1 text-sm rounded bg-[var(--card)] border border-[var(--border)] outline-none focus:border-[var(--primary)] select-text ${className}`}
       placeholder={placeholder}
+      maxLength={maxLength}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onClick={(e) => e.stopPropagation()}
@@ -174,7 +189,7 @@ export function Toasts() {
   );
 }
 
-export function Modal({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+export function Modal({ onClose, maxWidth, children }: { onClose: () => void; maxWidth?: string; children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -183,7 +198,8 @@ export function Modal({ onClose, children }: { onClose: () => void; children: Re
   return (
     <div className="fixed inset-0 z-40 bg-black/50 grid place-items-center p-6" onMouseDown={onClose}>
       <div
-        className="w-full max-w-2xl max-h-full overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--sidebar)] shadow-2xl"
+        className="w-full max-w-2xl max-h-full overflow-y-auto flex flex-col rounded-lg border border-[var(--border)] bg-[var(--sidebar)] shadow-2xl"
+        style={{ maxWidth }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {children}

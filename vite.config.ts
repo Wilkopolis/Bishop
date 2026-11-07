@@ -8,6 +8,11 @@ const API_PORT = Number(process.env.BISHOP_API_PORT || 45900);
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // With the default target, esbuild rewrites `||=` in xterm.js and drops a variable it still assigns to.
+    // xterm then throws on the first mode query from agy and the Terminal stays blank. WebView2 is always current.
+    target: 'esnext',
+  },
   server: {
     port: 5173,
     proxy: {

@@ -37,14 +37,15 @@ Produces a self-contained win-x64 folder in `release\publish\Bishop-<version>-wi
 
 ## Using Bishop
 
-- **Project folder & AGENTS.md:** every project is linked to a folder on disk (its code repo, or one Bishop creates under `Documents\Bishop\<name>`). Bishop adds an `AGENTS.md` there if there isn't one (it never overwrites or deletes anything in the folder). The overview shows the path with *Open folder* and *Edit AGENTS.md*; the sidebar menu has *Change folder…* (relinks, no files move). Projects created before folders existed, or whose folder was moved, show a banner to pick one. Voice topic runs Claude in this folder, so Claude Code reads `AGENTS.md` (verified with Claude Code 2.1.317, which reads `AGENTS.md` natively, so Bishop doesn't add a `CLAUDE.md`). Deleting a project in Bishop never touches its folder.
+- **Project folder & AGENTS.md:** every project is linked to a folder on disk (its code repo, or one Bishop creates under `Documents\Bishop\<name>`). Bishop adds an `AGENTS.md` there if there isn't one (it never overwrites or deletes anything in the folder). The overview shows the path (click it to open the folder in Explorer) with *Edit AGENTS.md*; the sidebar menu has *Change folder…* (relinks, no files move). Projects created before folders existed, or whose folder was moved, show a banner to pick one. Voice topic runs Claude in this folder, so Claude Code reads `AGENTS.md` (verified with Claude Code 2.1.317, which reads `AGENTS.md` natively, so Bishop doesn't add a `CLAUDE.md`). Deleting a project in Bishop never touches its folder.
 - **Project overview:** the panel at the top shows the title and tagline (click either to edit the tagline), task progress, and an optional picture. Add a picture by clicking the dashed box (it appears on hover), dropping an image file onto the panel, or pasting one; hover the picture to replace or remove it. Pictures are downscaled to 1600 px before upload.
 - **Projects & folders:** right-click (or the `…` button) for rename / move / delete; double-click to rename. Drag projects onto a folder, onto another project (to go above it), or onto the empty area at the bottom to move them out of a folder.
 - **Topics:** the Right now / Soon / Later / Backlog sections are stacked top to bottom; each wraps its cards in a grid and can be collapsed (remembered per project). Drag a card within a section to reorder it, or into another section: an orange bar shows exactly where it will land (empty sections and collapsed headers take it at the end). Keyboard: focus a card, Space to pick up, arrow keys to move (Up/Down step between sections), Space to drop, Esc to cancel; Enter opens the card.
+- **Archive a topic:** open a topic and click *Archive topic*. It leaves the board and stops counting toward the overview's task progress, and Voice topic no longer lists it for Claude. Nothing is deleted. Archived topics sit in the collapsed *Archived* section under the board, newest first; click one to open it, or *Restore* to put it back in its section.
 - **Tasks:** in a topic, drag the grip handle (or focus it, Space, arrows, Space) to reorder.
 - **Work on a task with Claude:** hover an open task and click the arrow. The topic closes, the Terminal opens, and a new Claude session starts in the project folder (if the project already has a session, Bishop asks first, since that session ends). Bishop writes a brief to `<data root>\work\` with the topic title, category and description, every task in the topic with its done state, and which one to work on; Claude gets a short prompt that points at that file, so task text never goes on a command line. When Claude finishes, it marks the task done by calling Bishop's local API with `curl.exe` (Claude asks before running it, like any command). While the Terminal is open, Bishop reloads the topics every few seconds so the tick shows up. Briefs older than 7 days are deleted.
-- **Search:** Ctrl+K or Ctrl+F searches topic titles, descriptions and task titles in every project. Arrow keys + Enter open the topic.
-- **Voice topic:** the mic button on a project records a note, transcribes it locally, and asks Claude for a draft topic you edit before saving.
+- **Search:** Ctrl+K or Ctrl+F searches topic titles, descriptions and task titles in every project, including archived topics (marked *Archived*). Arrow keys + Enter open the topic.
+- **Voice topic:** click the microphone button at the bottom left of the sidebar (select a project first). Recording stays in that corner, with a live waveform of the microphone level and the recording duration: click stop to transcribe locally, or the X to discard. The small button at the right of that strip transcribes an audio file instead. A dialog then shows the transcript and asks Claude for a draft topic you edit before saving. The topic goes to the project selected at that point.
 - **Terminal:** Ctrl+` (or *Terminal* in the title bar) opens a panel at the bottom running the interactive `claude` CLI in the selected project's folder, so it reads that folder's `AGENTS.md`. It's a real pseudo-terminal (Windows ConPTY + xterm.js). Each project keeps its own session while you switch projects; *Restart* starts it again and *New ▾* opens a fresh Claude or PowerShell session. Drag the top edge to resize (remembered). Ctrl+C copies a selection (otherwise it goes to the program), Ctrl+Shift+C / Ctrl+Shift+V copy and paste, right-click copies or pastes; links open in your browser. Claude's normal permission prompts apply (Bishop passes no permission flags). Terminal processes are in a Windows Job Object, so they're killed with Bishop, even if it crashes.
 - **Backups:** the gear icon in the sidebar has *Back up now*, *Open backups folder*, and shows the last backup.
 
@@ -91,7 +92,7 @@ Default data root is `%LOCALAPPDATA%\Bishop\`. Settings resolve from a command-l
 | Claude model | | | `claudeModel` | CLI default |
 | New-project folder root | `--projects-root` | `BISHOP_PROJECTS_ROOT` | `projectsRoot` | `Documents\Bishop` (suggested folder = root\project name) |
 
-The Whisper model (~1.6 GB) is downloaded from Hugging Face (`ggerganov/whisper.cpp`) the first time you open **Voice topic**, with progress shown in the dialog. Logs go to `%LOCALAPPDATA%\Bishop\bishop.log` (including which Whisper backend loaded).
+The Whisper model (~1.6 GB) is downloaded from Hugging Face (`ggerganov/whisper.cpp`) the first time you click the **Voice topic** microphone. A dialog asks first, then progress shows in the record element at the bottom left of the sidebar. The download keeps running while you use the rest of the app. Logs go to `%LOCALAPPDATA%\Bishop\bishop.log` (including which Whisper backend loaded).
 
 ```
 <data root>\
@@ -118,7 +119,7 @@ Window state (`window.json`) and the WebView2 profile always live in `%LOCALAPPD
 
 | table  | columns |
 |--------|---------|
-| topics | id, title, description, category (`RIGHT_NOW` \| `SOON` \| `LATER` \| `BACKLOG`), sort_order, created_at, updated_at |
+| topics | id, title, description, category (`RIGHT_NOW` \| `SOON` \| `LATER` \| `BACKLOG`), sort_order, created_at, updated_at, archived_at (nullable; set while the topic is archived; schema v3) |
 | tasks  | id, topic_id → topics (cascade delete), title, completed (0/1), sort_order, created_at, completed_at |
 | project_image | id (always 1), mime, data (blob), updated_at: the optional project picture, kept in the project's own file so backups and trash include it (schema v2) |
 
@@ -151,10 +152,10 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | GET    | `/api/projects/{id}/image?v=` | the project picture (immutable cache per `imageVersion`) |
 | POST   | `/api/projects/{id}/image` | raw PNG/JPEG/WebP/GIF body, ≤20 MB; type sniffed from bytes; PNG/JPEG over 1600 px downscaled; returns the project |
 | DELETE | `/api/projects/{id}/image` | removes the picture; returns the project |
-| GET    | `/api/projects/{pid}/topics` | topics, each with `tasks` |
+| GET    | `/api/projects/{pid}/topics` | topics, each with `tasks` and `archivedAt` (archived topics included) |
 | POST   | `/api/projects/{pid}/topics` | `{ title, description?, category? }` (default `BACKLOG`) |
 | POST   | `/api/projects/{pid}/topics/reorder` | `{ category, topicIds }`: full ordered list for one column |
-| PATCH  | `/api/projects/{pid}/topics/{tid}` | `{ title?, description?, category?, sortOrder? }` |
+| PATCH  | `/api/projects/{pid}/topics/{tid}` | `{ title?, description?, category?, sortOrder?, archived? }` (`archived: true` archives, `false` restores) |
 | DELETE | `/api/projects/{pid}/topics/{tid}` | |
 | GET    | `/api/projects/{pid}/topics/{tid}/tasks` | |
 | POST   | `/api/projects/{pid}/topics/{tid}/tasks` | `{ title }` |
@@ -162,7 +163,7 @@ All JSON. Errors return `{ "error": "..." }` with 400 or 404.
 | PATCH  | `/api/projects/{pid}/tasks/{taskId}` | `{ title?, completed?, sortOrder? }` |
 | POST   | `/api/projects/{pid}/tasks/{taskId}/complete` | no body; marks the task done (used by Claude from a task brief) |
 | DELETE | `/api/projects/{pid}/tasks/{taskId}` | |
-| GET    | `/api/search?q=` | matches in topic titles, descriptions and task titles across all projects |
+| GET    | `/api/search?q=` | matches in topic titles, descriptions and task titles across all projects; each hit has `archived` |
 | GET    | `/api/backups` | `{ folder, keep, backups }` |
 | POST   | `/api/backups` | back up now |
 | POST   | `/api/backups/open` | opens the backups folder in Explorer |

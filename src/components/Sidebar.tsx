@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, type MouseEvent } from 'react';
-import { Folder as FolderIcon, FolderPlus, MoreHorizontal, NotebookText, Plus, Search, Settings } from './icons';
+import { createContext, useContext, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
+import { Folder as FolderIcon, FolderPlus, MoreHorizontal, Plus, Search, Settings } from './icons';
 import {
   DndContext,
   DragOverlay,
@@ -16,8 +16,12 @@ import {
 } from '@dnd-kit/core';
 import { api } from '../api/client';
 import { bySortOrder, useBishopStore } from '../store/useBishopStore';
-import type { Folder, Project } from '../types';
+import type { Folder, Project, QueuedCount, TerminalInfo } from '../types';
+import { ProjectIcon } from './ProjectIcon';
+import { SessionFeed } from './SessionFeed';
 import { ContextMenu, InlineInput, type MenuItem } from './ui';
+import { UsageMeter } from './UsageMeter';
+import { VoiceTopic } from './VoiceTopic';
 
 type Ref = { kind: 'project' | 'folder'; id: number };
 type Draft = { kind: 'project' | 'folder'; parentId: number | null };
@@ -63,9 +67,26 @@ function DraftRow({ depth }: { depth: number }) {
   );
 }
 
+/**
+ * The faint text beside a project's name: its work state. Null shows nothing: the sessions haven't loaded yet.
+ * Running matches the host's `IsBusy`: Claude is on a task, or someone is working in the project's Terminal. Idle is the opposite.
+ * A session left in the background or never typed in doesn't count.
+ * Queued tasks replace idle, and sit beside running so the count isn't lost while the queue is moving.
+ */
+const projectStatus = (project: Project, sessions: TerminalInfo[] | null, queuedCounts: QueuedCount[]): string | null => {
+  if (sessions === null) return null;
+  const busy = sessions.some((t) => t.projectId === project.id && t.alive && (t.taskRunning || (t.used && !t.background)));
+  const queued = queuedCounts.find((q) => q.projectId === project.id)?.count ?? 0;
+  if (busy) return queued > 0 ? `running, ${queued} queued` : 'running';
+  if (queued > 0) return `${queued} ${queued === 1 ? 'task' : 'tasks'} queued`;
+  return 'idle';
+};
+
 function ProjectRow({ project, depth }: { project: Project; depth: number }) {
-  const { selectedProjectId, selectProject, renameProject, moveProject, deleteProject, folders, confirm, setEditingTagline, setFolderDialogFor, pushError } =
+  const { selectedProjectId, selectProject, renameProject, moveProject, deleteProject, folders, confirm, setEditingTagline, setFolderDialogFor, setIconDialogFor, pushError, sessions, queuedCounts } =
     useBishopStore();
+  // A topic from the board is being dragged over this row: dropping moves it into this project.
+  const topicOver = useBishopStore((s) => s.topicDropProjectId === project.id);
   const { editing, setEditing, openMenu } = useContext(Ctx);
   const selected = selectedProjectId === project.id;
   const drag = useDraggable({ id: `p${project.id}` });
@@ -88,6 +109,7 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
         setEditingTagline(true);
       },
     },
+    { label: 'Change icon…', onSelect: () => setIconDialogFor(project.id) },
     { label: project.folderPath ? 'Change folder…' : 'Choose folder…', onSelect: () => setFolderDialogFor(project.id) },
     ...(project.folderPath && !project.folderMissing
       ? [{ label: 'Open folder', onSelect: () => api.openProjectFolder(project.id).catch(pushError) }]
@@ -114,6 +136,7 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
   ];
 
   const dropping = drop.isOver && !drag.isDragging;
+  const status = projectStatus(project, sessions, queuedCounts);
 
   return (
     <div
@@ -124,18 +147,19 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
       {...drag.attributes}
       {...drag.listeners}
       data-project-id={project.id}
-      aria-label={`${project.name}. Press Space to pick up and move with arrow keys.`}
+      aria-label={`${project.name}${status ? `, ${status}` : ''}. Press Space to pick up and move with arrow keys.`}
       className={`group relative flex items-center gap-2 pr-1 py-1 rounded cursor-pointer text-sm ${
         selected ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'hover:bg-[var(--card)]'
-      } ${drag.isDragging ? 'opacity-40' : ''}`}
+      } ${drag.isDragging ? 'opacity-40' : ''} ${topicOver ? 'ring-1 ring-[var(--primary)] bg-[var(--primary-subtle)]' : ''}`}
       style={indent(depth)}
       onClick={() => selectProject(project.id)}
       onDoubleClick={() => setEditing({ kind: 'project', id: project.id })}
       onContextMenu={(e) => openMenu(e, menu)}
     >
       {dropping && <div className="absolute left-1 right-1 -top-px h-0.5 rounded bg-[var(--primary)]" />}
-      <NotebookText size={14} className="shrink-0" />
+      <ProjectIcon project={project} plain={selected} />
       <span className="truncate flex-1">{project.name}</span>
+      {status && <span className="shrink-0 text-xs opacity-60">{status}</span>}
       <button
         className="p-0.5 rounded opacity-0 group-hover:opacity-70 hover:!opacity-100"
         title="Project actions"
@@ -236,6 +260,40 @@ export function Sidebar() {
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [dragging, setDragging] = useState<Project | null>(null);
 
+  const asideRef = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const [sessionMaxHeight, setSessionMaxHeight] = useState<number | undefined>(undefined);
+
+  useLayoutEffect(() => {
+    const update = () => {
+      const aside = asideRef.current;
+      if (!aside) return;
+
+      const asideHeight = aside.clientHeight;
+      const headerHeight = headerRef.current?.offsetHeight ?? 0;
+      const treeHeight = treeRef.current?.offsetHeight ?? 0;
+      const dropZoneMinHeight = projects.length > 0 ? 36 : 0;
+      const navPaddingBottom = 8;
+      const navNeededHeight = treeHeight + dropZoneMinHeight + navPaddingBottom;
+      const bottomHeight = bottomRef.current?.offsetHeight ?? 0;
+
+      const available = asideHeight - headerHeight - navNeededHeight - bottomHeight;
+      setSessionMaxHeight(Math.max(0, Math.floor(available)));
+    };
+
+    update();
+
+    const ro = new ResizeObserver(update);
+    if (asideRef.current) ro.observe(asideRef.current);
+    if (headerRef.current) ro.observe(headerRef.current);
+    if (treeRef.current) ro.observe(treeRef.current);
+    if (bottomRef.current) ro.observe(bottomRef.current);
+
+    return () => ro.disconnect();
+  }, [projects.length, folders.length]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] } }),
@@ -290,8 +348,8 @@ export function Sidebar() {
 
   return (
     <Ctx.Provider value={{ editing, setEditing, draft, setDraft, openMenu }}>
-      <aside className="w-64 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--sidebar)]">
-        <div className="flex items-center justify-between px-3 py-2">
+      <aside ref={asideRef} className="w-64 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--sidebar)]">
+        <div ref={headerRef} className="flex items-center justify-between px-3 py-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Projects</span>
           <div className="flex gap-1">
             <button className="p-1 rounded hover:bg-[var(--card)]" title="Search (Ctrl+K)" onClick={() => setSearchOpen(true)}>
@@ -316,37 +374,45 @@ export function Sidebar() {
           onDragEnd={onDragEnd}
           onDragCancel={() => setDragging(null)}
         >
-          <nav className="flex-1 flex flex-col overflow-y-auto px-1 pb-2">
-            {draft?.parentId === null && <DraftRow depth={0} />}
-            {folders
-              .filter((f) => f.parentId === null)
-              .map((f) => (
-                <FolderNode key={`f${f.id}`} folder={f} depth={0} />
-              ))}
-            {projects
-              .filter((p) => p.folderId === null)
-              .sort(bySortOrder)
-              .map((p) => (
-                <ProjectRow key={`p${p.id}`} project={p} depth={0} />
-              ))}
-            {!loading && folders.length === 0 && projects.length === 0 && !draft && (
-              <button
-                className="w-full mt-4 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                onClick={() => setNewProjectDialog({ folderId: null })}
-              >
-                + New project
-              </button>
-            )}
+          <nav data-projects-panel className="flex-1 flex flex-col overflow-y-auto px-1 pb-2">
+            <div ref={treeRef} className="flex flex-col">
+              {draft?.parentId === null && <DraftRow depth={0} />}
+              {folders
+                .filter((f) => f.parentId === null)
+                .map((f) => (
+                  <FolderNode key={`f${f.id}`} folder={f} depth={0} />
+                ))}
+              {projects
+                .filter((p) => p.folderId === null)
+                .sort(bySortOrder)
+                .map((p) => (
+                  <ProjectRow key={`p${p.id}`} project={p} depth={0} />
+                ))}
+              {!loading && folders.length === 0 && projects.length === 0 && !draft && (
+                <button
+                  className="w-full mt-4 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  onClick={() => setNewProjectDialog({ folderId: null })}
+                >
+                  + New project
+                </button>
+              )}
+            </div>
             {projects.length > 0 && <RootDropZone />}
           </nav>
           <DragOverlay>
             {dragging && (
               <div className="flex items-center gap-2 px-2 py-1 rounded text-sm bg-[var(--card)] border border-[var(--primary)] shadow-xl">
-                <NotebookText size={14} /> {dragging.name}
+                <ProjectIcon project={dragging} /> {dragging.name}
               </div>
             )}
           </DragOverlay>
         </DndContext>
+
+        <SessionFeed maxHeight={sessionMaxHeight} />
+        <div ref={bottomRef} className="shrink-0 flex flex-col">
+          <UsageMeter />
+          <VoiceTopic />
+        </div>
       </aside>
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </Ctx.Provider>

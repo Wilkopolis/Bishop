@@ -90,14 +90,26 @@ public class Program
         var backups = new Backups(storage);
         _ = Task.Run(backups.RunDailyIfDue);
         var transcriber = new Transcriber(settings.WhisperModelName, settings.WhisperModelPath);
-        var claude = new ClaudeCli(settings.ClaudePath, settings.ClaudeModel);
-        using var terminals = new Terminals(claude);
+        var antigravity = new AntigravityCli(settings.AntigravityPath);
+        var claude = new ClaudeCli(settings.ClaudePath, settings.ClaudeModel, antigravity);
+        using var terminals = new Terminals(claude, antigravity, settings.DataRoot);
         Log.Info($"Bishop starting; data={settings.DataRoot}; model={settings.WhisperModelPath}; claude={claude.Resolve() ?? "(not found)"}");
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [] });
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         int port = apiOnly ? DevApiPort : PickPort(DesktopPortStart);
         builder.WebHost.UseKestrel(options => options.Listen(IPAddress.Loopback, port));
+
+        // Runs in the API-only dev mode too, so the numbers are saved whichever way Bishop starts.
+        terminals.TaskCompleted += c =>
+        {
+            long? topicId = null;
+            try { topicId = storage.GetTask(c.ProjectId, c.TaskId).TopicId; } catch (Exception) { }
+            storage.RecordTaskMetrics(c, topicId, c.Kind.ToString().ToLowerInvariant());
+        };
+
+        // Saves sessions so the sessions panel can list the past week after a restart.
+        terminals.SessionChanged += (info, startedAt) => storage.SaveSession(info, startedAt);
 
         var app = builder.Build();
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
@@ -151,6 +163,7 @@ public class Program
         var url = app.Urls.First();
 
         MainWindow = new BishopWindow(url, AppSettings.AppDataDir);
+        terminals.TaskCompleted += _ => MainWindow.FlashTaskbarIfIdle();
         Application.Run(MainWindow);
 
         Log.Info("Bishop exiting");

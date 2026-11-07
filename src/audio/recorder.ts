@@ -5,6 +5,10 @@ const TARGET_RATE = 16000;
 export interface Recording {
   stop: () => Promise<Blob>;
   cancel: () => void;
+  /** Current microphone loudness, 0 to 1, scaled so normal speech fills most of the range. */
+  level: () => number;
+  /** Milliseconds since recording started. */
+  elapsedMs: () => number;
 }
 
 export async function startRecording(): Promise<Recording> {
@@ -24,10 +28,27 @@ export async function startRecording(): Promise<Recording> {
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
   recorder.start(250);
+  const startedAt = performance.now();
 
-  const release = () => stream.getTracks().forEach((t) => t.stop());
+  // The analyser is a dead end: connecting it to the output would play the mic back through the speakers.
+  const meter = new AudioContext();
+  const analyser = meter.createAnalyser();
+  meter.createMediaStreamSource(stream).connect(analyser);
+  void meter.resume();
+  const samples = new Float32Array(analyser.fftSize);
+
+  const release = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    void meter.close();
+  };
 
   return {
+    elapsedMs: () => performance.now() - startedAt,
+    level: () => {
+      analyser.getFloatTimeDomainData(samples);
+      const rms = Math.sqrt(samples.reduce((sum, s) => sum + s * s, 0) / samples.length);
+      return Math.min(1, Math.sqrt(rms) * 1.6);
+    },
     stop: () =>
       new Promise<Blob>((resolve, reject) => {
         recorder.onstop = () => {

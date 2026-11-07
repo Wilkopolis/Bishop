@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ApiError, api } from '../api/client';
-import { useBishopStore } from '../store/useBishopStore';
-import type { AgentsFile, FolderStatus, Project } from '../types';
-import { FileText, Folder, FolderOpen, Loader2, WarningCircle, X } from './icons';
-import { Modal } from './ui';
+import { aiChoiceFor, aiServiceFor, useBishopStore } from '../store/useBishopStore';
+import { AI_SERVICE_LABELS, AI_SERVICES, PROJECT_TYPE_LABELS, type AgentsFile, type AiService, type FolderStatus, type Project, type ProjectType } from '../types';
+import { CaretDown, FileText, Folder, FolderOpen, Loader2, WarningCircle, X } from './icons';
+import { ContextMenu, Modal, type MenuItem } from './ui';
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const field = 'w-full px-2 py-1.5 text-sm rounded bg-[var(--card)] border border-[var(--border)] outline-none focus:border-[var(--primary)] select-text';
@@ -249,23 +249,78 @@ export function FolderBanner({ project }: { project: Project }) {
   );
 }
 
-/** Small muted line in the overview: the folder path plus Open folder / Edit AGENTS.md. */
+/** Small muted line in the overview: the folder path (click to open it), Edit AGENTS.md and the AI service. */
 export function FolderLine({ project }: { project: Project }) {
-  const { setAgentsEditorFor, pushError } = useBishopStore();
+  const { setAgentsEditorFor, pushError, aiService: generalService, setAiService, aiModels, aiEfforts, setProjectTerminalChoice } = useBishopStore();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [typeMenu, setTypeMenu] = useState<{ x: number; y: number } | null>(null);
+  const setProjectType = useBishopStore((s) => s.setProjectType);
+  const aiService = aiServiceFor(project, generalService);
   if (!project.folderPath || project.folderMissing) return null;
   const action = 'flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--card)] hover:text-[var(--foreground)] shrink-0';
+  const openMenu = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setMenu({ x: r.left, y: r.bottom + 2 });
+  };
+  // Saves the service, and the model and reasoning pair it would use, so the project keeps what the user sees.
+  const pickService = (service: AiService) => {
+    const choice = aiChoiceFor(project, service, aiModels, aiEfforts);
+    setProjectTerminalChoice(project.id, service, choice.model, choice.effort);
+    setAiService(service);
+  };
+  const menuItems: MenuItem[] = AI_SERVICES.map((s) => ({ label: AI_SERVICE_LABELS[s], checked: s === aiService, onSelect: () => pickService(s) }));
   return (
-    <div data-testid="folder-line" className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] min-w-0">
-      <Folder size={13} className="shrink-0" />
-      <span className="truncate font-mono" title={project.folderPath}>
-        {project.folderPath}
-      </span>
-      <button className={action} title="Open the folder in Explorer" onClick={() => api.openProjectFolder(project.id).catch(pushError)}>
-        <FolderOpen size={13} /> Open folder
-      </button>
-      <button className={action} title="Edit this project's AGENTS.md" onClick={() => setAgentsEditorFor(project.id)}>
-        <FileText size={13} /> Edit AGENTS.md
-      </button>
+    <div data-testid="folder-line" className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[var(--muted-foreground)] min-w-0">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Folder size={13} className="shrink-0" />
+        <button
+          className="truncate font-mono text-left hover:text-[var(--foreground)] hover:underline"
+          title={`Open in Explorer: ${project.folderPath}`}
+          onClick={() => api.openProjectFolder(project.id).catch(pushError)}
+        >
+          {project.folderPath}
+        </button>
+        <button className={action} title="Edit this project's AGENTS.md" onClick={() => setAgentsEditorFor(project.id)}>
+          <FileText size={13} /> Edit AGENTS.md
+        </button>
+      </div>
+      {/* In a narrow window the service button drops to its own row, so it stays on screen. */}
+      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+        <button
+          data-testid="project-type"
+          className={action}
+          title="Choose the project type: Agent has the full layout, Personal has only categories and tasks."
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setTypeMenu({ x: r.left, y: r.bottom + 2 });
+          }}
+        >
+          {PROJECT_TYPE_LABELS[project.projectType]} <CaretDown size={11} />
+        </button>
+        {project.projectType !== 'personal' && (
+          <button
+            data-testid="ai-service"
+            className={action}
+            title="Choose the AI service for new sessions and tasks. A running session keeps its own."
+            onClick={(e) => openMenu(e.currentTarget)}
+          >
+            {AI_SERVICE_LABELS[aiService]} <CaretDown size={11} />
+          </button>
+        )}
+      </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+      {typeMenu && (
+        <ContextMenu
+          x={typeMenu.x}
+          y={typeMenu.y}
+          items={(Object.keys(PROJECT_TYPE_LABELS) as ProjectType[]).map((t) => ({
+            label: PROJECT_TYPE_LABELS[t],
+            checked: t === project.projectType,
+            onSelect: () => setProjectType(project.id, t),
+          }))}
+          onClose={() => setTypeMenu(null)}
+        />
+      )}
     </div>
   );
 }

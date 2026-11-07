@@ -6,6 +6,14 @@
  * --primary-hover    lighter accent for hover
  * --primary-subtle   translucent accent for highlights / drop targets
  * --primary-text     accent for text and borders on dark surfaces
+ * --task-complete    dark orange for finished tasks
+ * --task-complete-foreground  check mark on a finished task
+ * --task-active      bright, saturated orange for the task Claude is working on
+ * --task-pending     dark yellow for queued tasks
+ * --task-unassigned  gray for open tasks nobody has picked up
+ * --antigravity      blue for the Antigravity usage meters
+ * --usage-fill-foreground  text over a usage bar's fill: the opposite of --foreground, which is the text over the empty bar
+ * --complexity-1 .. --complexity-10  task complexity scale from 1 (simple) to 10 (very complex)
  */
 :root {
   --background: #f5f5f4;
@@ -20,6 +28,23 @@
   --primary-subtle: rgba(234, 88, 12, 0.12);
   --primary-text: #c2410c;
   --primary-foreground: #ffffff;
+  --task-complete: #9a3412;
+  --task-complete-foreground: #ffffff;
+  --task-active: #ff7a00;
+  --task-pending: #bd8a00;
+  --task-unassigned: #a8a29e;
+  --antigravity: #2563eb;
+  --usage-fill-foreground: #ffffff;
+  --complexity-1: #10b981;
+  --complexity-2: #22c55e;
+  --complexity-3: #84cc16;
+  --complexity-4: #eab308;
+  --complexity-5: #f59e0b;
+  --complexity-6: #fb923c;
+  --complexity-7: #f97316;
+  --complexity-8: #ef4444;
+  --complexity-9: #e11d48;
+  --complexity-10: #be123c;
 
   --scrollbar-track: #e7e5e4;
   --scrollbar-thumb: #a8a29e;
@@ -39,6 +64,23 @@ html.dark {
   --primary-subtle: rgba(249, 115, 22, 0.16);
   --primary-text: #fb923c;
   --primary-foreground: #ffffff;
+  --task-complete: #c2410c;
+  --task-complete-foreground: #ffffff;
+  --task-active: #ff7a00;
+  --task-pending: #dba100;
+  --task-unassigned: #6b6560;
+  --antigravity: #3b82f6;
+  --usage-fill-foreground: #1c1917;
+  --complexity-1: #10b981;
+  --complexity-2: #22c55e;
+  --complexity-3: #84cc16;
+  --complexity-4: #eab308;
+  --complexity-5: #f59e0b;
+  --complexity-6: #fb923c;
+  --complexity-7: #f97316;
+  --complexity-8: #ef4444;
+  --complexity-9: #e11d48;
+  --complexity-10: #be123c;
 
   --scrollbar-track: #0e0d0c;
   --scrollbar-thumb: #3a3633;

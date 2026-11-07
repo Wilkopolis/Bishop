@@ -3,7 +3,6 @@ import { Loader2, Search } from './icons';
 import { api } from '../api/client';
 import { useBishopStore } from '../store/useBishopStore';
 import type { SearchHit } from '../types';
-import { CATEGORY_LABELS } from './categories';
 
 const MATCH_LABELS: Record<SearchHit['matchKind'], string> = { title: 'Title', description: 'Description', task: 'Task' };
 
@@ -100,7 +99,7 @@ export function SearchDialog() {
             >
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm font-medium truncate">{hit.topicTitle}</span>
-                <span className="shrink-0 text-[10px] uppercase tracking-wider opacity-80">{CATEGORY_LABELS[hit.category]}</span>
+                <span className="shrink-0 text-[10px] uppercase tracking-wider opacity-80">{hit.archived ? 'Archived' : hit.categoryName}</span>
               </div>
               <div className="flex items-center gap-2 text-xs opacity-75">
                 <span className="shrink-0">{hit.projectName}</span>

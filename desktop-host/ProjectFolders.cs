@@ -93,7 +93,8 @@ public static class ProjectFolders
 
         This project is tracked in **Bishop**, a local project manager. Bishop organizes work into
         **topics** (a piece of work or an idea, with a short description) and each topic has a
-        checklist of **tasks**. Every topic sits in one category:
+        checklist of **tasks**. Every topic sits in one category. Projects can add and remove
+        categories; these are the ones a project starts with:
 
         - **RIGHT NOW**: being worked on now, or urgent
         - **SOON**: next up
