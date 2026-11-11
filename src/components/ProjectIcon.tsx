@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useBishopStore } from '../store/useBishopStore';
 import type { Project } from '../types';
 import { NotebookText, Search, X } from './icons';
@@ -11,8 +11,30 @@ const ICON_COLORS = [
   '#fb923c', '#facc15', '#fde047', '#a3e635', '#4ade80', '#34d399', '#2dd4bf', '#22d3ee', '#94a3b8',
 ];
 
+// The full Phosphor set loads on demand, so it stays out of the main bundle.
+let allIcons: Record<string, string> | null = null;
+let allIconsLoading: Promise<void> | null = null;
+
+function useAllIcons(enabled: boolean) {
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    if (!enabled || allIcons) return;
+    allIconsLoading ??= import('./phosphorAll').then((m) => {
+      allIcons = m.ALL_PHOSPHOR;
+    });
+    let live = true;
+    void allIconsLoading.then(() => live && rerender((n) => n + 1));
+    return () => {
+      live = false;
+    };
+  }, [enabled]);
+  return allIcons;
+}
+
 function Glyph({ icon, color, size }: { icon: string | null; color?: string | null; size: number }) {
-  const markup = icon ? PROJECT_ICON_SVG[icon] : undefined;
+  const curated = icon ? PROJECT_ICON_SVG[icon] : undefined;
+  const all = useAllIcons(!!icon && !curated);
+  const markup = curated ?? (icon && all ? all[icon] : undefined);
   const style = color ? { color } : undefined;
   if (!markup) return <NotebookText size={size} className="shrink-0" style={style} />;
   return (
@@ -42,12 +64,25 @@ function Picker({ project, close }: { project: Project; close: () => void }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
 
+  const all = useAllIcons(true);
+  const icons = useMemo(() => {
+    if (!all) return PROJECT_ICONS;
+    const extra = Object.keys(all)
+      .filter((id) => !PROJECT_ICON_SVG[id])
+      .map((id) => ({
+        id,
+        label: id.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        category: 'more',
+      }));
+    return [...PROJECT_ICONS, ...extra];
+  }, [all]);
+
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return PROJECT_ICONS.filter(
+    return icons.filter(
       (i) => (category === 'all' || i.category === category) && (!q || i.id.includes(q) || i.label.toLowerCase().includes(q)),
     );
-  }, [query, category]);
+  }, [icons, query, category]);
 
   const save = (nextIcon: string | null, nextColor: string | null) => {
     setProjectIcon(project.id, nextIcon, nextColor);
@@ -89,6 +124,9 @@ function Picker({ project, close }: { project: Project; close: () => void }) {
             {c.label}
           </button>
         ))}
+        <button className={pill(category === 'more')} onClick={() => setCategory('more')}>
+          {all ? 'More icons' : 'Loading icons...'}
+        </button>
       </div>
 
       <div className="grid grid-cols-10 gap-1 p-2 h-52 content-start overflow-y-auto rounded border border-[var(--border)] bg-[var(--background)]">

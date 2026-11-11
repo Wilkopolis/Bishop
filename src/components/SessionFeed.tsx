@@ -16,20 +16,24 @@ const sortKey = (t: TerminalInfo) => {
   const time = t.endedAt ?? t.taskFinishedAt;
   return time === null ? Infinity : Date.parse(time);
 };
+const DAY_MS = 24 * 60 * 60 * 1000;
 /**
- * The text at the end of a session entry: "Ended" once the process has ended, "Working" while Claude is on its task,
- * and the date and time of the session's last activity, e.g. "Nov 7, 4:12 PM".
+ * The text at the end of a session entry: when the session last had activity. Within the last 24 hours that is just
+ * the time, e.g. "4:12 PM"; older sessions show the month and day, e.g. "Nov 7". No status words.
  */
-const statusText = (endedAt: string | null, lastActivityAt: string, working: boolean) => {
-  const when = new Date(lastActivityAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  if (endedAt !== null) return `Ended ${when}`;
-  return working ? `Working · ${when}` : when;
+const timeText = (lastActivityAt: string) => {
+  const at = new Date(lastActivityAt);
+  const recent = Date.now() - at.getTime() < DAY_MS;
+  return recent
+    ? at.toLocaleString([], { hour: 'numeric', minute: '2-digit' })
+    : at.toLocaleString([], { month: 'short', day: 'numeric' });
 };
 
 /**
  * Used sessions that aren't on screen, newest first: hiding the Terminal puts its session here, and sessions that ended
  * stay and stack up until the app closes. Clicking one reopens it in the Terminal; an ended one shows its scrollback.
- * Past sessions from the last week that the host no longer holds (saved in each project) are listed after them, not clickable.
+ * Past sessions from this run that the host no longer holds (saved in each project) are listed after them, not clickable.
+ * Sessions from earlier runs of Bishop are not listed: their Terminals can't be reached.
  * One line each: the project shows as its icon, and its name is in the tooltip. Under the projects list; always shown, with a note when there are none.
  */
 export function SessionFeed({ maxHeight }: { maxHeight?: number } = {}) {
@@ -54,7 +58,7 @@ export function SessionFeed({ maxHeight }: { maxHeight?: number } = {}) {
     };
   }, [refreshSessions]);
 
-  // Saved sessions from the past week, for every project. Live sessions win by id, so only ones the host no longer holds show here.
+  // Saved sessions from this run, for every project. Live sessions win by id, so only ones the host no longer holds show here.
   const projectIds = projects.map((p) => p.id).join(',');
   const [history, setHistory] = useState<PastSession[]>([]);
   useEffect(() => {
@@ -70,7 +74,11 @@ export function SessionFeed({ maxHeight }: { maxHeight?: number } = {}) {
           ),
         ),
       );
-      if (!cancelled) setHistory(lists.flat());
+      // Same rows as last time: keep the old array, so the feed doesn't re-render on every poll.
+      if (!cancelled) {
+        const next = lists.flat();
+        setHistory((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      }
     };
     void load();
     const timer = setInterval(load, HISTORY_MS);
@@ -114,7 +122,7 @@ export function SessionFeed({ maxHeight }: { maxHeight?: number } = {}) {
                 {project && <ProjectIcon project={project} />}
                 <span className="min-w-0 flex-1 truncate">{s.taskTitle ?? s.title}</span>
                 <span className="shrink-0 whitespace-nowrap text-xs text-[var(--muted-foreground)]">
-                  {statusText(s.endedAt, s.lastActivityAt, s.taskRunning)}
+                  {timeText(s.lastActivityAt)}
                 </span>
               </button>
             </li>
@@ -131,7 +139,7 @@ export function SessionFeed({ maxHeight }: { maxHeight?: number } = {}) {
               >
                 {project && <ProjectIcon project={project} />}
                 <span className="min-w-0 flex-1 truncate">{name}</span>
-                <span className="shrink-0 whitespace-nowrap text-xs">{statusText(r.endedAt, r.lastActivityAt, false)}</span>
+                <span className="shrink-0 whitespace-nowrap text-xs">{timeText(r.lastActivityAt)}</span>
               </div>
             </li>
           );

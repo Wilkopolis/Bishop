@@ -3,19 +3,38 @@ import { clampComplexity, complexityColor, COMPLEXITY_COLORS, type Task, type To
 
 export { complexityColor, COMPLEXITY_COLORS };
 
-/** A colored dot showing a task's 1 to 10 complexity rating. */
+/** A colored dot showing a task's 1 to 10 complexity rating. With `onClick` it is a button that opens the complexity picker. */
 export function TaskComplexityDot({
   complexity,
   completed = false,
   testId = 'task-complexity',
   className = '',
+  onClick,
 }: {
   complexity: number;
   completed?: boolean;
   testId?: string;
   className?: string;
+  onClick?: () => void;
 }) {
   const c = clampComplexity(complexity ?? 5);
+  const classes = `shrink-0 w-2.5 h-2.5 rounded-full ${completed ? 'opacity-50' : ''} ${className}`;
+  const style = { backgroundColor: complexityColor(c) };
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        data-complexity={c}
+        data-complexity-color={COMPLEXITY_COLORS[c]}
+        title={`Complexity ${c}/10. Click to change`}
+        aria-label={`Complexity ${c} of 10. Change complexity`}
+        style={style}
+        onClick={onClick}
+        className={`${classes} p-0 border-0 cursor-pointer hover:ring-2 hover:ring-[var(--primary-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]`}
+      />
+    );
+  }
   return (
     <span
       data-testid={testId}
@@ -23,8 +42,8 @@ export function TaskComplexityDot({
       data-complexity-color={COMPLEXITY_COLORS[c]}
       title={`Complexity ${c}/10`}
       aria-label={`Complexity ${c} of 10`}
-      style={{ backgroundColor: complexityColor(c) }}
-      className={`shrink-0 w-2.5 h-2.5 rounded-full ${completed ? 'opacity-50' : ''} ${className}`}
+      style={style}
+      className={classes}
     />
   );
 }

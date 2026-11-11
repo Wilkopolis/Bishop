@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, api } from '../api/client';
 import { aiChoiceFor, aiServiceFor, useBishopStore } from '../store/useBishopStore';
-import { AI_SERVICE_LABELS, AI_SERVICES, PROJECT_TYPE_LABELS, type AgentsFile, type AiService, type FolderStatus, type Project, type ProjectType } from '../types';
+import { AI_SERVICE_LABELS, AI_SERVICES, DISPLAY_TYPE_LABELS, type AgentsFile, type AiService, type FolderStatus, type Project, type DisplayType } from '../types';
 import { CaretDown, FileText, Folder, FolderOpen, Loader2, WarningCircle, X } from './icons';
 import { ContextMenu, Modal, type MenuItem } from './ui';
 
@@ -254,7 +254,7 @@ export function FolderLine({ project }: { project: Project }) {
   const { setAgentsEditorFor, pushError, aiService: generalService, setAiService, aiModels, aiEfforts, setProjectTerminalChoice } = useBishopStore();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [typeMenu, setTypeMenu] = useState<{ x: number; y: number } | null>(null);
-  const setProjectType = useBishopStore((s) => s.setProjectType);
+  const setDisplayType = useBishopStore((s) => s.setDisplayType);
   const aiService = aiServiceFor(project, generalService);
   if (!project.folderPath || project.folderMissing) return null;
   const action = 'flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--card)] hover:text-[var(--foreground)] shrink-0';
@@ -287,17 +287,17 @@ export function FolderLine({ project }: { project: Project }) {
       {/* In a narrow window the service button drops to its own row, so it stays on screen. */}
       <div className="flex flex-wrap items-center gap-1.5 min-w-0">
         <button
-          data-testid="project-type"
+          data-testid="display-type"
           className={action}
-          title="Choose the project type: Agent has the full layout, Personal has only categories and tasks."
+          title="Choose the display type: Full has the full layout, Compact has only categories and tasks."
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setTypeMenu({ x: r.left, y: r.bottom + 2 });
           }}
         >
-          {PROJECT_TYPE_LABELS[project.projectType]} <CaretDown size={11} />
+          {DISPLAY_TYPE_LABELS[project.displayType]} <CaretDown size={11} />
         </button>
-        {project.projectType !== 'personal' && (
+        {project.displayType !== 'personal' && (
           <button
             data-testid="ai-service"
             className={action}
@@ -313,10 +313,10 @@ export function FolderLine({ project }: { project: Project }) {
         <ContextMenu
           x={typeMenu.x}
           y={typeMenu.y}
-          items={(Object.keys(PROJECT_TYPE_LABELS) as ProjectType[]).map((t) => ({
-            label: PROJECT_TYPE_LABELS[t],
-            checked: t === project.projectType,
-            onSelect: () => setProjectType(project.id, t),
+          items={(Object.keys(DISPLAY_TYPE_LABELS) as DisplayType[]).map((t) => ({
+            label: DISPLAY_TYPE_LABELS[t],
+            checked: t === project.displayType,
+            onSelect: () => setDisplayType(project.id, t),
           }))}
           onClose={() => setTypeMenu(null)}
         />

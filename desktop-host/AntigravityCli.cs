@@ -243,10 +243,10 @@ public sealed class AntigravityCli(string? configuredPath)
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
+        HideConsole(psi);
         foreach (var arg in new[]
                  {
                      "-p", $"Read the file {file} and follow the instructions in it. Answer with only what it asks for.",
@@ -320,6 +320,17 @@ public sealed class AntigravityCli(string? configuredPath)
     private static string? FirstLine(string text) =>
         text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
 
+    /// <summary>
+    /// Gives agy a hidden console, not no console (CreateNoWindow). agy starts console programs of its own: every 15
+    /// minutes its background updater runs `agy --version`. With no console to inherit, Windows opens a new one for
+    /// them, and that window pops up and takes focus. A hidden console is inherited, so nothing shows.
+    /// </summary>
+    private static void HideConsole(ProcessStartInfo psi)
+    {
+        psi.CreateNoWindow = false;
+        psi.WindowStyle = ProcessWindowStyle.Hidden;
+    }
+
     /// <summary>Runs agy away from any project and returns what it printed. Any failure reads as null.</summary>
     private async Task<string?> OutputOfAsync(string[] args, TimeSpan limit, CancellationToken ct)
     {
@@ -332,9 +343,9 @@ public sealed class AntigravityCli(string? configuredPath)
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             UseShellExecute = false,
-            CreateNoWindow = true,
             StandardOutputEncoding = Encoding.UTF8,
         };
+        HideConsole(psi);
         foreach (var arg in args) psi.ArgumentList.Add(arg);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);

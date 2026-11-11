@@ -9,9 +9,9 @@ public record FolderDto(long Id, string Name, long? ParentId, long SortOrder, st
 /// <param name="FolderMissing">FolderPath is set but the folder no longer exists (moved or deleted).</param>
 /// <param name="ClaudeModel">The model saved for Claude on this project. Null: nothing saved. Empty: the CLI's own default. The same goes for the three after it.</param>
 /// <param name="AiService">The AI service saved on this project, claude or antigravity. Null: nothing saved.</param>
-/// <param name="ProjectType">agent (the full layout) or personal (categories and simple tasks).</param>
+/// <param name="DisplayType">agent (the full layout) or personal (categories and simple tasks).</param>
 public record ProjectDto(long Id, string Name, long? FolderId, long SortOrder, string CreatedAt, string UpdatedAt, string? Tagline, string? ImageVersion, string? FolderPath, bool FolderMissing, string? Icon, string? IconColor,
-    string? ClaudeModel, string? ClaudeEffort, string? AntigravityModel, string? AntigravityEffort, string? AiService, string ProjectType = "agent");
+    string? ClaudeModel, string? ClaudeEffort, string? AntigravityModel, string? AntigravityEffort, string? AiService, string DisplayType = "agent");
 
 public record ProjectImage(string Mime, byte[] Data);
 
@@ -56,10 +56,9 @@ public partial class Storage
     /// <summary>The categories a project starts with. After that, each project's own list is in its categories table.</summary>
     private static readonly (string Key, string Name)[] DefaultCategories =
         [("RIGHT_NOW", "Right now"), ("SOON", "Soon"), ("LATER", "Later"), ("BACKLOG", "Backlog")];
-    private const string VoiceCategory = "SOON";
     public const int MaxCategoryNameLength = 40;
 
-    private const int IndexSchemaVersion = 8;
+    private const int IndexSchemaVersion = 9;
     public const int MaxTaglineLength = 200;
     private const int ProjectSchemaVersion = 17;
 
@@ -70,6 +69,8 @@ public partial class Storage
     /// <summary>Keeps a poll of every project file from running while a deleted project's file moves to trash.</summary>
     private readonly object _projectFilesGate = new();
     private string TrashDir => Path.Combine(DataRoot, "trash");
+    /// <summary>When this run of Bishop started. Sessions saved before it belong to an earlier run and aren't listed.</summary>
+    private readonly string _runStartedAt = Now();
 
     public Storage(string dataRoot)
     {
@@ -220,7 +221,7 @@ public partial class Storage
             tx.Commit();
         }
 
-        // v8: the project type. 'agent' is the full layout with topics and Terminal; 'personal' is a plain
+        // v8: the display type (first called project type). 'agent' is the full layout with topics and Terminal; 'personal' is a plain
         // list of categories and tasks. Existing projects get 'agent', so nothing changes for them.
         if (version < 8)
         {
@@ -228,6 +229,18 @@ public partial class Storage
             if (!HasColumn(conn, "projects", "project_type"))
                 Exec(conn, "ALTER TABLE projects ADD COLUMN project_type TEXT NOT NULL DEFAULT 'agent' CHECK (project_type IN ('agent', 'personal'))");
             Exec(conn, "PRAGMA user_version = 8");
+            tx.Commit();
+        }
+
+        // v9: the v8 column is now called display_type, to match the API. The values stay 'agent' and
+        // 'personal' (shown as Full and Compact), so existing rows keep working. SQLite also updates
+        // the column name inside the CHECK constraint.
+        if (version < 9)
+        {
+            using var tx = conn.BeginTransaction();
+            if (HasColumn(conn, "projects", "project_type") && !HasColumn(conn, "projects", "display_type"))
+                Exec(conn, "ALTER TABLE projects RENAME COLUMN project_type TO display_type");
+            Exec(conn, "PRAGMA user_version = 9");
             tx.Commit();
         }
     }
@@ -258,7 +271,7 @@ public partial class Storage
         return new TreeDto(folders, projects);
     }
 
-    private const string ProjectColumns = "id, name, folder_id, sort_order, created_at, updated_at, tagline, image_version, folder_path, icon, icon_color, claude_model, claude_effort, antigravity_model, antigravity_effort, ai_service, project_type";
+    private const string ProjectColumns = "id, name, folder_id, sort_order, created_at, updated_at, tagline, image_version, folder_path, icon, icon_color, claude_model, claude_effort, antigravity_model, antigravity_effort, ai_service, display_type";
 
     private static ProjectDto ReadProject(SqliteDataReader r)
     {
@@ -283,10 +296,10 @@ public partial class Storage
     }
 
     /// <summary>Empty means agent, the default.</summary>
-    private static string NormalizeProjectType(string? type)
+    private static string NormalizeDisplayType(string? type)
     {
         if (string.IsNullOrEmpty(type)) return "agent";
-        return type is "agent" or "personal" ? type : throw new ArgumentException("Project type must be agent or personal");
+        return type is "agent" or "personal" ? type : throw new ArgumentException("Display type must be agent or personal");
     }
 
     /// <summary>Empty means none. The catalog lives in the frontend, so only the id's shape is checked here.</summary>
@@ -402,10 +415,10 @@ public partial class Storage
     }
 
     /// <param name="folderPath">Already normalized and prepared by <see cref="ProjectFolders.Link"/>.</param>
-    public ProjectDto CreateProject(string name, long? folderId, string? tagline = null, string? folderPath = null, string? projectType = null)
+    public ProjectDto CreateProject(string name, long? folderId, string? tagline = null, string? folderPath = null, string? displayType = null)
     {
         name = RequireName(name, "Project name");
-        projectType = NormalizeProjectType(projectType);
+        displayType = NormalizeDisplayType(displayType);
         tagline = NormalizeTagline(tagline);
         using var conn = Open(IndexPath);
         EnsureFolderExists(conn, folderId);
@@ -414,8 +427,8 @@ public partial class Storage
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM projects WHERE folder_id IS $f", ("$f", folderId)));
         var fileName = $"{Guid.NewGuid():N}.db";
         var id = Convert.ToInt64(Scalar(conn,
-            "INSERT INTO projects (name, folder_id, file_name, sort_order, created_at, updated_at, tagline, folder_path, project_type) VALUES ($n, $f, $file, $s, $c, $c, $t, $p, $pt) RETURNING id",
-            ("$n", name), ("$f", folderId), ("$file", fileName), ("$s", sort), ("$c", now), ("$t", tagline), ("$p", folderPath), ("$pt", projectType)));
+            "INSERT INTO projects (name, folder_id, file_name, sort_order, created_at, updated_at, tagline, folder_path, display_type) VALUES ($n, $f, $file, $s, $c, $c, $t, $p, $pt) RETURNING id",
+            ("$n", name), ("$f", folderId), ("$file", fileName), ("$s", sort), ("$c", now), ("$t", tagline), ("$p", folderPath), ("$pt", displayType)));
         InitProjectDb(Path.Combine(ProjectsDir, fileName));
         return GetProject(conn, id);
     }
@@ -425,11 +438,11 @@ public partial class Storage
     public ProjectDto UpdateProject(long id, string? name, Optional<long?> folderId, Optional<string?> tagline = default, string? folderPath = null,
         Optional<string?> icon = default, Optional<string?> iconColor = default,
         Optional<string?> claudeModel = default, Optional<string?> claudeEffort = default,
-        Optional<string?> antigravityModel = default, Optional<string?> antigravityEffort = default, Optional<string?> aiService = default, string? projectType = null)
+        Optional<string?> antigravityModel = default, Optional<string?> antigravityEffort = default, Optional<string?> aiService = default, string? displayType = null)
     {
         using var conn = Open(IndexPath);
         GetProject(conn, id);
-        var newType = projectType is null ? null : NormalizeProjectType(projectType);
+        var newType = displayType is null ? null : NormalizeDisplayType(displayType);
         // Checked before anything is written, so a bad value saves nothing.
         var choices = new[]
         {
@@ -472,7 +485,7 @@ public partial class Storage
         }
         if (newType is not null)
         {
-            Exec(conn, "UPDATE projects SET project_type = $t, updated_at = $u WHERE id = $id",
+            Exec(conn, "UPDATE projects SET display_type = $t, updated_at = $u WHERE id = $id",
                 ("$t", newType), ("$u", Now()), ("$id", id));
         }
         foreach (var (column, given, value) in choices)
@@ -841,7 +854,7 @@ public partial class Storage
         }
 
         // v17: sessions keeps a record of each Terminal session and when it last did something, so the
-        // sessions panel can list the past week's sessions after a restart. Times are UTC ISO strings.
+        // sessions panel can list this run's ended sessions. Times are UTC ISO strings.
         if (version < 17)
         {
             using var tx = conn.BeginTransaction();
@@ -910,15 +923,18 @@ public partial class Storage
         }
     }
 
-    /// <summary>Sessions of a project whose last activity falls in the past <paramref name="days"/> days, most recent first.</summary>
+    /// <summary>
+    /// Sessions of a project started in this run of Bishop whose last activity falls in the past <paramref name="days"/> days,
+    /// most recent first. Sessions from earlier runs are left out: their Terminals can't be reached any more.
+    /// </summary>
     public List<SessionRecord> ListRecentSessions(long projectId, int days = 7)
     {
         var since = DateTime.UtcNow.AddDays(-days).ToString("o");
         using var conn = OpenProject(projectId);
         using var cmd = Command(conn, """
             SELECT id, kind, title, topic_id, task_id, task_title, model, effort, started_at, last_activity_at, ended_at
-            FROM sessions WHERE last_activity_at >= $since ORDER BY last_activity_at DESC
-            """, [("$since", since)]);
+            FROM sessions WHERE last_activity_at >= $since AND started_at >= $run ORDER BY last_activity_at DESC
+            """, [("$since", since), ("$run", _runStartedAt)]);
         using var r = cmd.ExecuteReader();
         var rows = new List<SessionRecord>();
         while (r.Read())
@@ -1052,11 +1068,10 @@ public partial class Storage
         return ReadCategories(conn);
     }
 
-    /// <summary>Where a new voice topic starts: Soon, or the first category if the project removed Soon.</summary>
+    /// <summary>Where an imported voice topic starts: the project's first category, the top of the board.</summary>
     public string GetVoiceCategory(long projectId)
     {
-        var categories = GetCategories(projectId);
-        return categories.Any(c => c.Key == VoiceCategory) ? VoiceCategory : categories[0].Key;
+        return GetCategories(projectId)[0].Key;
     }
 
     /// <summary>Adds a category at the end of the board; returns all of the project's categories.</summary>
@@ -1141,8 +1156,9 @@ public partial class Storage
         var now = Now();
         var sort = Convert.ToInt64(Scalar(conn,
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM topics WHERE category = $c", ("$c", cat)));
+        // New topics default to Same session: tasks continue the topic's session unless the user switches it.
         var id = Convert.ToInt64(Scalar(conn,
-            "INSERT INTO topics (title, description, category, sort_order, created_at, updated_at) VALUES ($t, $d, $c, $s, $n, $n) RETURNING id",
+            "INSERT INTO topics (title, description, category, sort_order, created_at, updated_at, same_session) VALUES ($t, $d, $c, $s, $n, $n, 1) RETURNING id",
             ("$t", title), ("$d", description ?? ""), ("$c", cat), ("$s", sort), ("$n", now)));
         TouchProject(projectId);
         return GetTopic(conn, id);

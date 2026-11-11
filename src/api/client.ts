@@ -1,4 +1,4 @@
-import { clampComplexity, rateTaskComplexity, type AgentsFile, type AiService, type AntigravityUsage, type TerminalInfo, type TerminalKind, type TerminalModel, type BackupInfo, type DelegationConfig, type Category, type ClaudeUsage, type Folder, type FolderStatus, type ModelFamily, type Project, type ProjectCategory, type ProjectType, type QueuedCount, type RefinedTopicResponse, type SearchHit, type SessionRecord, type Task, type TaskMetric, type Topic, type TopicContextFile, type TopicDraft, type TopicMove, type TopicResearch, type Transcription, type Tree, type VoiceStatus } from '../types';
+import { clampComplexity, rateTaskComplexity, type AgentsFile, type AiService, type AntigravityUsage, type TerminalInfo, type TerminalKind, type TerminalModel, type BackupInfo, type DelegationConfig, type Category, type ClaudeUsage, type Folder, type FolderStatus, type ModelFamily, type Project, type ProjectCategory, type DisplayType, type QueuedCount, type RefinedTopicResponse, type SearchHit, type SessionRecord, type Task, type TaskMetric, type Topic, type TopicContextFile, type TopicDraft, type TopicMove, type TopicResearch, type Transcription, type Tree, type VoiceStatus } from '../types';
 import { logClient } from './log';
 
 const TASK_COMPLEXITY_KEY = 'bishop_task_complexity';
@@ -95,8 +95,8 @@ export const api = {
     request<Folder>('PATCH', `/folders/${id}`, patch),
   deleteFolder: (id: number) => request<void>('DELETE', `/folders/${id}`),
 
-  createProject: (name: string, folderPath: string, folderId: number | null = null, projectType?: ProjectType) =>
-    request<Project>('POST', '/projects', { name, folderPath, folderId, projectType }),
+  createProject: (name: string, folderPath: string, folderId: number | null = null, displayType?: DisplayType) =>
+    request<Project>('POST', '/projects', { name, folderPath, folderId, displayType }),
   updateProject: (
     id: number,
     patch: {
@@ -111,7 +111,7 @@ export const api = {
       antigravityModel?: string | null;
       antigravityEffort?: string | null;
       aiService?: AiService | null;
-      projectType?: ProjectType;
+      displayType?: DisplayType;
     },
   ) => request<Project>('PATCH', `/projects/${id}`, patch),
   deleteProject: (id: number) => request<void>('DELETE', `/projects/${id}`),

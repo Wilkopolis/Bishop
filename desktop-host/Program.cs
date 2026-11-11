@@ -108,7 +108,7 @@ public class Program
             storage.RecordTaskMetrics(c, topicId, c.Kind.ToString().ToLowerInvariant());
         };
 
-        // Saves sessions so the sessions panel can list the past week after a restart.
+        // Saves sessions so the sessions panel can list this run's sessions after they end or are hidden.
         terminals.SessionChanged += (info, startedAt) => storage.SaveSession(info, startedAt);
 
         var app = builder.Build();

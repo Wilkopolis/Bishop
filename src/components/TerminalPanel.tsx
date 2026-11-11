@@ -1,3 +1,4 @@
+import { logClient } from '../api/log';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -55,9 +56,24 @@ const theme = {
 const exitNote = (code: number | null | undefined) =>
   `\r\n\x1b[38;2;161;156;151m[process exited${code != null ? ` with code ${code}` : ''}. Use Restart to start again]\x1b[0m\r\n`;
 
-/** One xterm attached to a server-side session over a WebSocket (scrollback is replayed on attach). */
-function TerminalView({ session }: { session: Session }) {
+/**
+ * One xterm attached to a server-side session over a WebSocket (scrollback is replayed on attach).
+ * A view that isn't `visible` stays mounted but hidden, so coming back to its project skips the rebuild and the replay.
+ */
+function TerminalView({ session, visible }: { session: Session; visible: boolean }) {
   const host = useRef<HTMLDivElement>(null);
+  const wantsFocus = useBishopStore((s) => s.terminalWantsFocus);
+  const clearTerminalFocus = useBishopStore((s) => s.clearTerminalFocus);
+
+  // A button opened the Terminal: focus the shown view once. Nothing else focuses it.
+  useEffect(() => {
+    if (!visible || !wantsFocus) return;
+    const id = requestAnimationFrame(() => {
+      host.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+      clearTerminalFocus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [visible, wantsFocus, clearTerminalFocus]);
 
   useEffect(() => {
     const el = host.current!;
@@ -97,7 +113,10 @@ function TerminalView({ session }: { session: Session }) {
     };
     ws.onclose = () => term.write('');
 
-    term.onData((data) => send({ type: 'input', data }));
+    term.onData((data) => {
+      if (data.length > 1) logClient("info", `[Terminal] input of ${data.length} chars on ${session.id}`);
+      send({ type: 'input', data });
+    });
     term.onResize(({ cols, rows }) => send({ type: 'resize', cols, rows }));
 
     const copy = () => {
@@ -107,7 +126,10 @@ function TerminalView({ session }: { session: Session }) {
     };
     const paste = () =>
       navigator.clipboard.readText().then(
-        (text) => text && term.paste(text),
+        (text) => {
+          logClient("info", `[Terminal] paste of ${text.length} chars on ${session.id}`);
+          if (text) term.paste(text);
+        },
         () => {},
       );
 
@@ -132,8 +154,9 @@ function TerminalView({ session }: { session: Session }) {
     });
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      if (!copy()) paste();
-      else term.clearSelection();
+      logClient("info", `[Terminal] contextmenu on ${session.id}, button ${e.button}, t=${Math.round(e.timeStamp)}`);
+      // Right-click paste is off for now, to see whether the program in the terminal handles right-click itself.
+      if (copy()) term.clearSelection();
     };
     el.addEventListener('contextmenu', onContextMenu);
 
@@ -153,31 +176,32 @@ function TerminalView({ session }: { session: Session }) {
     };
   }, [session.id]);
 
-  return <div ref={host} data-testid="terminal" className="absolute inset-0 pl-2 pt-1" />;
+  // Hidden has no size, so the resize observer's fit does nothing until the view is shown again.
+  return <div ref={host} data-testid={visible ? 'terminal' : undefined} className={visible ? 'absolute inset-0 pl-2 pt-1' : 'hidden'} />;
 }
 
+/** Views kept mounted at once. The least recently shown one goes first, and its session keeps running on the host. */
+const MAX_MOUNTED_VIEWS = 4;
+
 export function TerminalPanel() {
-  const {
-    terminalOpen,
-    setTerminalOpen,
-    projects,
-    selectedProjectId,
-    workRequest,
-    clearWorkRequest,
-    reopenRequest,
-    clearReopenRequest,
-    pushError,
-    confirm,
-    setProjectTerminalChoice,
-    aiService: generalBackend,
-    setAiService: setBackend,
-    aiModels: models,
-    aiEfforts: efforts,
-    setAiChoice,
-    aiModelLists: modelLists,
-    loadAiModels: loadModels,
-  } = useBishopStore();
-  const project = projects.find((p) => p.id === selectedProjectId);
+  // Per-field selectors: the panel re-renders only for what it reads, not on every store update.
+  const terminalOpen = useBishopStore((s) => s.terminalOpen);
+  const setTerminalOpen = useBishopStore((s) => s.setTerminalOpen);
+  const project = useBishopStore((s) => s.projects.find((p) => p.id === s.selectedProjectId));
+  const workRequest = useBishopStore((s) => s.workRequest);
+  const clearWorkRequest = useBishopStore((s) => s.clearWorkRequest);
+  const reopenRequest = useBishopStore((s) => s.reopenRequest);
+  const clearReopenRequest = useBishopStore((s) => s.clearReopenRequest);
+  const pushError = useBishopStore((s) => s.pushError);
+  const confirm = useBishopStore((s) => s.confirm);
+  const setProjectTerminalChoice = useBishopStore((s) => s.setProjectTerminalChoice);
+  const generalBackend = useBishopStore((s) => s.aiService);
+  const setBackend = useBishopStore((s) => s.setAiService);
+  const models = useBishopStore((s) => s.aiModels);
+  const efforts = useBishopStore((s) => s.aiEfforts);
+  const setAiChoice = useBishopStore((s) => s.setAiChoice);
+  const modelLists = useBishopStore((s) => s.aiModelLists);
+  const loadModels = useBishopStore((s) => s.loadAiModels);
   const backend = aiServiceFor(project, generalBackend);
   const [height, setHeight] = useState(readHeight);
   const heightRef = useRef(height);
@@ -189,6 +213,8 @@ export function TerminalPanel() {
   const [error, setError] = useState<{ projectId: number; kind: Kind; model: string | null; effort: string | null; text: string; code?: string; taskId?: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const startedFor = useRef(new Set<number>());
+  // Session ids with a mounted terminal view, most recently shown first.
+  const recentViews = useRef<string[]>([]);
   // A work request is being handled. Until its session exists, a second one (a double click) would start another Claude.
   const handlingWork = useRef(false);
   // For the background check, which outlives renders.
@@ -527,7 +553,22 @@ export function TerminalPanel() {
     window.addEventListener('pointerup', up);
   };
 
-  if (!terminalOpen) return null;
+  // Keep a view per recent session mounted, and show the one for this project. Order by id so views never move in the DOM.
+  const showingView = !!project && ready && !(error && error.projectId === project.id) && !!session;
+  if (showingView && session) {
+    recentViews.current = [session.id, ...recentViews.current.filter((id) => id !== session.id)];
+  }
+  const live = new Map<string, Session>();
+  for (const v of Object.values(sessions)) if (v) live.set(v.id, v);
+  recentViews.current = recentViews.current.filter((id) => live.has(id)).slice(0, MAX_MOUNTED_VIEWS);
+  const mountedSessions = recentViews.current
+    .map((id) => live.get(id)!)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  if (!terminalOpen) {
+    recentViews.current = []; // closing the panel unmounts every view
+    return null;
+  }
 
   const headerBtn = 'flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[var(--card)] disabled:opacity-40';
   const openMenu = (el: HTMLElement, items: MenuItem[]) => {
@@ -580,7 +621,7 @@ export function TerminalPanel() {
       />
       <header className="flex items-center gap-2 px-3 h-8 shrink-0 border-b border-[var(--border)] bg-[var(--sidebar)] text-xs">
         <TerminalWindow size={14} className="text-[var(--primary-text)] shrink-0" />
-        {project?.projectType !== 'personal' && <button
+        {project?.displayType !== 'personal' && <button
           data-testid="terminal-backend"
           className={`${headerBtn} shrink-0 font-semibold`}
           disabled={!project || !ready || starting}
@@ -601,7 +642,7 @@ export function TerminalPanel() {
         >
           {kindLabel(session?.kind ?? backend)} <CaretDown size={11} />
         </button>}
-        {session?.kind !== 'shell' && project?.projectType !== 'personal' && (
+        {session?.kind !== 'shell' && project?.displayType !== 'personal' && (
           <>
             <button
               data-testid="terminal-model"
@@ -674,13 +715,14 @@ export function TerminalPanel() {
               </button>
             </div>
           </div>
-        ) : session ? (
-          <TerminalView key={session.id} session={session} />
-        ) : session === null ? (
+        ) : session ? null : session === null ? (
           <Notice text="This session moved to the background. Find it under Sessions in the sidebar, or use New to start another." />
         ) : (
           <Notice text="Starting…" />
         )}
+        {mountedSessions.map((m) => (
+          <TerminalView key={m.id} session={m} visible={showingView && m.id === session?.id} />
+        ))}
       </div>
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </section>

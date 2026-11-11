@@ -81,14 +81,14 @@ function SilentToggle() {
 }
 
 function TerminalToggle() {
-  const { terminalOpen, setTerminalOpen } = useBishopStore();
+  const { terminalOpen, setTerminalOpen, launchTerminal } = useBishopStore();
   return (
     <button
       className={`w-11 h-full grid place-items-center hover:bg-[var(--card)] ${terminalOpen ? 'text-[var(--primary-text)]' : 'text-[var(--muted-foreground)]'}`}
       title="Terminal (Ctrl+`)"
       aria-label="Terminal (Ctrl+`)"
       aria-pressed={terminalOpen}
-      onClick={() => setTerminalOpen(!terminalOpen)}
+      onClick={() => (terminalOpen ? setTerminalOpen(false) : launchTerminal())}
     >
       <TerminalWindow size={15} />
     </button>

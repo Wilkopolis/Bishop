@@ -8,6 +8,7 @@ import { ConfirmDialog, Toasts } from './components/ui';
 import { SearchDialog } from './components/SearchDialog';
 import { ChartsDialog } from './components/ChartsDialog';
 import { DelegationDialog } from './components/DelegationDialog';
+import { ComplexityPickerDialog } from './components/ComplexityPickerDialog';
 import { AgentsEditor, ChangeFolderDialog, NewProjectDialog } from './components/ProjectFolder';
 import { ProjectIconDialog } from './components/ProjectIcon';
 import { TerminalPanel } from './components/TerminalPanel';
@@ -78,6 +79,7 @@ export default function App() {
       <SearchDialog />
       <ChartsDialog />
       <DelegationDialog />
+      <ComplexityPickerDialog />
       <NewProjectDialog />
       <ChangeFolderDialog />
       <ProjectIconDialog />

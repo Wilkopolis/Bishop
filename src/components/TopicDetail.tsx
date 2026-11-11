@@ -18,7 +18,7 @@ const CHECKBOX_CLASSES: Record<TaskStatus, string> = {
 
 /** `blocked`: the topic has open prerequisites, so this agent task can't be queued or started yet. */
 function TaskRow({ task, onWork, blocked = false }: { task: Task; onWork?: () => void; blocked?: boolean }) {
-  const { setTaskCompleted, setTaskQueued, setTaskPrerequisite, setTaskFollowUp, setTaskReply, renameTask, deleteTask, activeTaskIds } = useBishopStore();
+  const { setTaskCompleted, setTaskQueued, setTaskPrerequisite, setTaskFollowUp, setTaskReply, renameTask, deleteTask, activeTaskIds, openComplexityPicker } = useBishopStore();
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyDraft, setReplyDraft] = useState(task.reply ?? '');
   const canReply = task.prerequisite && !task.completed && task.id >= 0;
@@ -71,7 +71,13 @@ function TaskRow({ task, onWork, blocked = false }: { task: Task; onWork?: () =>
       >
         {task.completed && <Check size={12} />}
       </button>
-      <TaskComplexityDot complexity={task.complexity} completed={task.completed} className="mt-[5px]" />
+      {/* A pending task has no id yet, so there is nothing to change. */}
+      <TaskComplexityDot
+        complexity={task.complexity}
+        completed={task.completed}
+        className="mt-[5px]"
+        onClick={pending ? undefined : () => openComplexityPicker(task.id)}
+      />
       {editing ? (
         <InlineInput className="flex-1 min-w-0" initial={task.title} onCommit={(t) => { setEditing(false); renameTask(task.id, t); }} onCancel={() => setEditing(false)} />
       ) : (
@@ -424,7 +430,7 @@ export function TopicDetail() {
         <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
           {topic.archivedAt && <span data-testid="topic-archived-label">Archived</span>}
           <div className="ml-auto flex items-center gap-3">
-            {project?.projectType !== 'personal' && (
+            {project?.displayType !== 'personal' && (
               <>
                 <ModelFamilySwitch value={topic.modelFamily} disabled={topic.id < 0} onChange={(modelFamily) => updateTopic(topic.id, { modelFamily })} />
                 <ModelOverrideMenu topic={topic} disabled={topic.id < 0} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Archive, ArrowRight, ArrowUUpLeft, ChevronRight, GripVertical, ImageIcon, Loader2, MoreHorizontal, Plus, Queue, Sparkles, Trash2, UploadSimple } from './icons';
 import { api } from '../api/client';
 import { imageFromDataTransfer, PICTURE_ACCEPT } from '../images';
@@ -18,6 +18,7 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
   type DragStartEvent,
+  type Modifier,
   type UniqueIdentifier,
 } from '@dnd-kit/core';
 import { arrayMove, rectSortingStrategy, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -29,6 +30,22 @@ import { ContextMenu, InlineInput, type MenuItem } from './ui';
 import { BishopLogo } from './BishopLogo';
 import { FolderBanner, FolderLine } from './ProjectFolder';
 import { hasSession, TaskStatusBar, taskStatus } from './taskStatus';
+
+// The overlay is a small chip, but dnd-kit places it at the dragged card's top-left. Move it so the
+// pointer sits near the chip's left edge and vertical middle, wherever the card was grabbed.
+const CHIP_POINTER_X = 20;
+const CHIP_POINTER_Y = 14;
+const keepChipUnderPointer: Modifier = ({ transform, activatorEvent, activeNodeRect }) => {
+  if (!activeNodeRect || !activatorEvent) return transform;
+  const e = activatorEvent as Partial<MouseEvent & TouchEvent>;
+  const point = e.touches?.[0] ?? e;
+  if (typeof point.clientX !== 'number' || typeof point.clientY !== 'number') return transform;
+  return {
+    ...transform,
+    x: transform.x + (point.clientX - activeNodeRect.left) - CHIP_POINTER_X,
+    y: transform.y + (point.clientY - activeNodeRect.top) - CHIP_POINTER_Y,
+  };
+};
 
 type Columns = Record<Category, number[]>;
 
@@ -85,11 +102,20 @@ function TopicCardBody({ topic, showCategory = false }: { topic: Topic; showCate
 const cardClass = 'rounded-md border border-[var(--border)] bg-[var(--card)] p-3';
 
 /** `fixed` cards sit in the Active section: they don't drag. */
-function TopicCard({ topic, hint, fixed = false }: { topic: Topic; hint?: 'before' | 'after'; fixed?: boolean }) {
-  const { projects, selectedProjectId, openTopic, setTopicArchived, workOnTask, setTaskQueued, activeTaskIds, setRefineTopicFor, setTaskCompleted } = useBishopStore();
+// Per-field selectors: a card re-renders only when something it shows changes, not on every store update.
+const TopicCard = memo(function TopicCard({ topic, hint, fixed = false }: { topic: Topic; hint?: 'before' | 'after'; fixed?: boolean }) {
+  const openTopic = useBishopStore((s) => s.openTopic);
+  const setTopicArchived = useBishopStore((s) => s.setTopicArchived);
+  const workOnTask = useBishopStore((s) => s.workOnTask);
+  const setTaskQueued = useBishopStore((s) => s.setTaskQueued);
+  const activeTaskIds = useBishopStore((s) => s.activeTaskIds);
+  const setRefineTopicFor = useBishopStore((s) => s.setRefineTopicFor);
+  const canWork = useBishopStore((s) => {
+    const p = s.projects.find((q) => q.id === s.selectedProjectId);
+    return !!p?.folderPath && !p.folderMissing;
+  });
+  const personal = useBishopStore((s) => s.projects.find((q) => q.id === s.selectedProjectId)?.displayType === 'personal');
   const pending = topic.id < 0;
-  const project = projects.find((p) => p.id === selectedProjectId);
-  const canWork = !!project?.folderPath && !project.folderMissing;
   // Open tasks in checklist order. Unsaved tasks have no id for Claude to report back on.
   // Prerequisites are the user's own work, and agent tasks wait until all of them are done. Follow-ups don't block.
   const blocked = topic.tasks.some((t) => t.prerequisite && !t.followUp && !t.completed);
@@ -108,7 +134,7 @@ function TopicCard({ topic, hint, fixed = false }: { topic: Topic; hint?: 'befor
   const done = topic.tasks.filter((t) => t.completed).length;
 
   // Personal projects: one compact line per topic. The title, the progress count and the same actions as the card.
-  if (project?.projectType === 'personal') {
+  if (personal) {
     const iconBtn =
       'p-1 rounded text-[var(--muted-foreground)] opacity-0 group-hover/card:opacity-70 focus-visible:opacity-100 hover:!opacity-100 hover:bg-[var(--sidebar)]';
     const stop = { onPointerDown: (e: React.PointerEvent) => e.stopPropagation(), onKeyDown: (e: React.KeyboardEvent) => e.stopPropagation() };
@@ -139,60 +165,67 @@ function TopicCard({ topic, hint, fixed = false }: { topic: Topic; hint?: 'befor
             className={`absolute left-1 right-1 h-0.5 rounded bg-[var(--primary)] ${hint === 'before' ? '-top-1.5' : '-bottom-1.5'}`}
           />
         )}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium" title={topic.title}>
+        {/* A fixed 40% share of the row, so the titles line up in the same column on every row. */}
+        <span className="w-2/5 min-w-0 shrink-0 truncate text-sm font-medium" title={topic.title}>
           {topic.title}
         </span>
-        <TaskStatusBar tasks={topic.tasks} dividers testId="topic-card-progress" className="h-1.5 w-24 shrink-0 bg-[var(--sidebar)]" />
-        <span className="shrink-0 min-w-[5ch] text-right text-xs font-semibold tabular-nums">
-          {done}/{topic.tasks.length}
-        </span>
-        {!pending && !fixed && (
-          <button
-            data-testid="topic-card-refine"
-            className={`${iconBtn} hover:text-[var(--primary-text)] aria-disabled:cursor-not-allowed aria-disabled:hover:!opacity-40`}
-            title={busyTopic ? 'Refine is off while this topic has active or queued tasks' : 'Refine topic'}
-            aria-label={`Refine ${topic.title}`}
-            aria-disabled={busyTopic}
-            {...stop}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!busyTopic) setRefineTopicFor(topic.id);
-            }}
-          >
-            <Sparkles size={14} />
-          </button>
-        )}
-        {!pending && canWork && nextTask && (
-          <button
-            data-testid={busy ? 'topic-card-queue' : 'topic-card-work'}
-            className={`${iconBtn} ${busy ? 'hover:text-[var(--task-pending)]' : 'hover:text-[var(--primary-text)]'}`}
-            title={busy ? `Queue the next task: ${nextTask.title}` : 'Work on the next task (opens the Terminal)'}
-            aria-label={busy ? `Queue ${nextTask.title}` : `Work on the next task in ${topic.title}`}
-            {...stop}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (busy) setTaskQueued(nextTask.id, true);
-              else workOnTask(nextTask.id);
-            }}
-          >
-            {busy ? <Queue size={14} /> : <ArrowRight size={14} />}
-          </button>
-        )}
-        {!pending && (
-          <button
-            data-testid="topic-card-archive"
-            className={`${iconBtn} hover:text-[var(--foreground)]`}
-            title="Archive topic"
-            aria-label={`Archive ${topic.title}`}
-            {...stop}
-            onClick={(e) => {
-              e.stopPropagation();
-              setTopicArchived(topic.id, true);
-            }}
-          >
-            <Archive size={14} />
-          </button>
-        )}
+        {/* A fixed quarter of the row for the progress bar and count, so they line up in the same column on every row. */}
+        <div className="flex w-1/4 shrink-0 items-center gap-2">
+          <TaskStatusBar tasks={topic.tasks} dividers testId="topic-card-progress" className="h-1.5 flex-1 min-w-2 bg-[var(--sidebar)]" />
+          <span className="shrink-0 min-w-[5ch] text-right text-xs font-semibold tabular-nums">
+            {done}/{topic.tasks.length}
+          </span>
+        </div>
+        {/* A fixed-width area on the right, so the refine, start/queue and archive buttons line up in the same columns on every row. */}
+        <div className="flex w-20 shrink-0 items-center justify-end gap-1">
+          {!pending && !fixed && (
+            <button
+              data-testid="topic-card-refine"
+              className={`${iconBtn} hover:text-[var(--primary-text)] aria-disabled:cursor-not-allowed aria-disabled:hover:!opacity-40`}
+              title={busyTopic ? 'Refine is off while this topic has active or queued tasks' : 'Refine topic'}
+              aria-label={`Refine ${topic.title}`}
+              aria-disabled={busyTopic}
+              {...stop}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!busyTopic) setRefineTopicFor(topic.id);
+              }}
+            >
+              <Sparkles size={14} />
+            </button>
+          )}
+          {!pending && canWork && nextTask && (
+            <button
+              data-testid={busy ? 'topic-card-queue' : 'topic-card-work'}
+              className={`${iconBtn} ${busy ? 'hover:text-[var(--task-pending)]' : 'hover:text-[var(--primary-text)]'}`}
+              title={busy ? `Queue the next task: ${nextTask.title}` : 'Work on the next task (opens the Terminal)'}
+              aria-label={busy ? `Queue ${nextTask.title}` : `Work on the next task in ${topic.title}`}
+              {...stop}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (busy) setTaskQueued(nextTask.id, true);
+                else workOnTask(nextTask.id);
+              }}
+            >
+              {busy ? <Queue size={14} /> : <ArrowRight size={14} />}
+            </button>
+          )}
+          {!pending && (
+            <button
+              data-testid="topic-card-archive"
+              className={`${iconBtn} hover:text-[var(--foreground)]`}
+              title="Archive topic"
+              aria-label={`Archive ${topic.title}`}
+              {...stop}
+              onClick={(e) => {
+                e.stopPropagation();
+                setTopicArchived(topic.id, true);
+              }}
+            >
+              <Archive size={14} />
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -283,7 +316,7 @@ function TopicCard({ topic, hint, fixed = false }: { topic: Topic; hint?: 'befor
       )}
     </div>
   );
-}
+});
 
 /** Keyed by category. */
 type CollapsedMap = Record<string, boolean>;
@@ -326,13 +359,16 @@ function Section({
   onToggle: () => void;
   hint: DropHint | null;
 }) {
-  const { createTopic, renameCategory, removeCategory, confirm } = useBishopStore();
+  const createTopic = useBishopStore((s) => s.createTopic);
+  const renameCategory = useBishopStore((s) => s.renameCategory);
+  const removeCategory = useBishopStore((s) => s.removeCategory);
+  const confirm = useBishopStore((s) => s.confirm);
   const categories = useCategories();
   const label = categoryLabel(categories, category);
   // Counts archived topics and those showing in Active too: they all move when the category goes.
   const topicCount = useBishopStore((s) => s.topics.filter((t) => t.category === category).length);
   const archivedCount = useBishopStore((s) => s.topics.filter((t) => t.category === category && t.archivedAt).length);
-  const personal = useBishopStore((s) => s.projects.find((p) => p.id === s.selectedProjectId)?.projectType === 'personal');
+  const personal = useBishopStore((s) => s.projects.find((p) => p.id === s.selectedProjectId)?.displayType === 'personal');
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -469,7 +505,7 @@ function queueRank(topic: Topic, activeTaskIds: number[]): number {
 }
 
 function ActiveSection({ topics }: { topics: Topic[] }) {
-  const personal = useBishopStore((s) => s.projects.find((p) => p.id === s.selectedProjectId)?.projectType === 'personal');
+  const personal = useBishopStore((s) => s.projects.find((p) => p.id === s.selectedProjectId)?.displayType === 'personal');
   return (
     <section data-testid="active-section" aria-label={ACTIVE_LABEL} className="flex flex-col gap-2">
       <header className="py-1.5">
@@ -584,7 +620,7 @@ function Board({ topics, projectId }: { topics: Topic[]; projectId: number }) {
     return null;
   };
 
-  const isPersonal = useBishopStore((s) => s.projects.find((p) => p.id === projectId)?.projectType === 'personal');
+  const isPersonal = useBishopStore((s) => s.projects.find((p) => p.id === projectId)?.displayType === 'personal');
   const computeHint = (e: DragMoveEvent | DragEndEvent): DropHint | null => {
     const { active, over } = e;
     if (!over || projectUnder(e) !== null) return null;
@@ -692,7 +728,7 @@ function Board({ topics, projectId }: { topics: Topic[]; projectId: number }) {
           />
         ))}
       </div>
-      <DragOverlay>
+      <DragOverlay modifiers={[keepChipUnderPointer]}>
         {active && (
           <div
             data-over-projects-panel={overProjectsPanel ? '' : undefined}
@@ -1004,7 +1040,7 @@ function PersonalTaskRow({ task }: { task: Task }) {
       data-task-id={task.id}
       data-severity={severity}
       className={`group flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--card)] ${pending ? 'opacity-60' : ''} ${
-        isDragging ? 'relative z-10 bg-[var(--card)] shadow-lg' : ''
+        isDragging ? 'opacity-40' : ''
       }`}
     >
       <button
@@ -1181,6 +1217,9 @@ function PersonalBoard({ topics, projectId }: { topics: Topic[]; projectId: numb
       .sort(bySortOrder)
       .flatMap((t) => [...t.tasks].sort(bySortOrder));
 
+  const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
+  const activeTask = activeTaskId === null ? undefined : topics.flatMap((t) => t.tasks).find((t) => t.id === activeTaskId);
+
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
     const all = categories.flatMap((c) => tasksOf(c.key).map((t) => ({ task: t, category: c })));
@@ -1210,19 +1249,37 @@ function PersonalBoard({ topics, projectId }: { topics: Topic[]; projectId: numb
   };
 
   return (
-    <DndContext sensors={sensors} collisionDetection={personalCollision} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={personalCollision}
+      onDragStart={({ active }) => setActiveTaskId(Number(active.id))}
+      onDragEnd={(e) => {
+        setActiveTaskId(null);
+        onDragEnd(e);
+      }}
+      onDragCancel={() => setActiveTaskId(null)}
+    >
       <div data-testid="personal-board" className="flex flex-col gap-5 pb-6">
         {categories.map((c) => (
           <PersonalColumn key={c.key} category={c} tasks={tasksOf(c.key)} collapsed={!!collapsed[c.key]} onToggle={() => toggle(c.key)} />
         ))}
       </div>
+      {/* The overlay is placed from the pointer, so the preview stays under the mouse even across categories and while scrolling. */}
+      <DragOverlay>
+        {activeTask && (
+          <div className="flex items-center gap-2 px-2 py-1 rounded border border-[var(--primary)] bg-[var(--card)] shadow-xl cursor-grabbing">
+            <GripVertical size={14} className="shrink-0 opacity-70" />
+            <span className={`flex-1 min-w-0 truncate text-sm px-1 ${activeTask.completed ? 'line-through text-[var(--muted-foreground)]' : ''}`}>{activeTask.title}</span>
+          </div>
+        )}
+      </DragOverlay>
     </DndContext>
   );
 }
 
 export function ProjectOverview() {
-  const { projects, selectedProjectId, topics } = useBishopStore();
-  const project = projects.find((p) => p.id === selectedProjectId);
+  const project = useBishopStore((s) => s.projects.find((p) => p.id === s.selectedProjectId));
+  const topics = useBishopStore((s) => s.topics);
   const [boardTopics, archivedTopics] = useMemo(() => [topics.filter((t) => !t.archivedAt), topics.filter((t) => t.archivedAt)], [topics]);
 
   if (!project) {

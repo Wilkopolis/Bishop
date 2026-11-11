@@ -21,10 +21,10 @@ public sealed class KillOnCloseJob
     [DllImport("kernel32.dll")]
     private static extern bool SetInformationJobObject(IntPtr hJob, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, int cbInfo);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenProcess(int access, bool inherit, int pid);
 
     [DllImport("kernel32.dll")]
@@ -81,7 +81,11 @@ public sealed class KillOnCloseJob
     public void Add(int pid)
     {
         var h = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid);
-        if (h == IntPtr.Zero) return;
+        if (h == IntPtr.Zero)
+        {
+            Log.Info($"Couldn't open pid {pid} for the job: {Marshal.GetLastWin32Error()}");
+            return;
+        }
         try
         {
             if (!AssignProcessToJobObject(_job, h)) Log.Info($"Couldn't add pid {pid} to job: {Marshal.GetLastWin32Error()}");

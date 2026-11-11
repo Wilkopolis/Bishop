@@ -1,5 +1,5 @@
 import { createContext, useContext, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
-import { Folder as FolderIcon, FolderPlus, MoreHorizontal, Plus, Search, Settings } from './icons';
+import { CaretDown, ChevronRight, Folder as FolderIcon, FolderOpen, FolderPlus, MoreHorizontal, Plus, Search, Settings } from './icons';
 import {
   DndContext,
   DragOverlay,
@@ -83,8 +83,20 @@ const projectStatus = (project: Project, sessions: TerminalInfo[] | null, queued
 };
 
 function ProjectRow({ project, depth }: { project: Project; depth: number }) {
-  const { selectedProjectId, selectProject, renameProject, moveProject, deleteProject, folders, confirm, setEditingTagline, setFolderDialogFor, setIconDialogFor, pushError, sessions, queuedCounts } =
-    useBishopStore();
+  // Per-field selectors: a row re-renders only when something it shows changes, not on every store update.
+  const selectedProjectId = useBishopStore((s) => s.selectedProjectId);
+  const selectProject = useBishopStore((s) => s.selectProject);
+  const renameProject = useBishopStore((s) => s.renameProject);
+  const moveProject = useBishopStore((s) => s.moveProject);
+  const deleteProject = useBishopStore((s) => s.deleteProject);
+  const folders = useBishopStore((s) => s.folders);
+  const confirm = useBishopStore((s) => s.confirm);
+  const setEditingTagline = useBishopStore((s) => s.setEditingTagline);
+  const setFolderDialogFor = useBishopStore((s) => s.setFolderDialogFor);
+  const setIconDialogFor = useBishopStore((s) => s.setIconDialogFor);
+  const pushError = useBishopStore((s) => s.pushError);
+  const sessions = useBishopStore((s) => s.sessions);
+  const queuedCounts = useBishopStore((s) => s.queuedCounts);
   // A topic from the board is being dragged over this row: dropping moves it into this project.
   const topicOver = useBishopStore((s) => s.topicDropProjectId === project.id);
   const { editing, setEditing, openMenu } = useContext(Ctx);
@@ -173,9 +185,15 @@ function ProjectRow({ project, depth }: { project: Project; depth: number }) {
 }
 
 function FolderNode({ folder, depth }: { folder: Folder; depth: number }) {
-  const { folders, projects, renameFolder, deleteFolder, confirm, setNewProjectDialog } = useBishopStore();
+  const folders = useBishopStore((s) => s.folders);
+  const projects = useBishopStore((s) => s.projects);
+  const renameFolder = useBishopStore((s) => s.renameFolder);
+  const deleteFolder = useBishopStore((s) => s.deleteFolder);
+  const confirm = useBishopStore((s) => s.confirm);
+  const setNewProjectDialog = useBishopStore((s) => s.setNewProjectDialog);
   const { editing, setEditing, draft, setDraft, openMenu } = useContext(Ctx);
   const drop = useDroppable({ id: `f${folder.id}` });
+  const [collapsed, setCollapsed] = useState(false);
 
   const menu: MenuItem[] = [
     { label: 'New project here', onSelect: () => setNewProjectDialog({ folderId: folder.id }) },
@@ -208,24 +226,36 @@ function FolderNode({ folder, depth }: { folder: Folder; depth: number }) {
           onDoubleClick={() => setEditing({ kind: 'folder', id: folder.id })}
           onContextMenu={(e) => openMenu(e, menu)}
         >
-          <FolderIcon size={13} className="shrink-0" />
+          <button
+            className="p-0.5 rounded shrink-0 hover:text-[var(--foreground)]"
+            title={collapsed ? 'Expand folder' : 'Collapse folder'}
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((c) => !c)}
+          >
+            {collapsed ? <ChevronRight size={12} /> : <CaretDown size={12} />}
+          </button>
+          {collapsed ? <FolderIcon size={13} className="shrink-0" /> : <FolderOpen size={13} className="shrink-0" />}
           <span className="truncate flex-1">{folder.name}</span>
           <button className="p-0.5 rounded opacity-0 group-hover:opacity-70 hover:!opacity-100" title="Folder actions" onClick={(e) => openMenu(e, menu)}>
             <MoreHorizontal size={14} />
           </button>
         </div>
       )}
-      {folders
-        .filter((f) => f.parentId === folder.id)
-        .map((f) => (
-          <FolderNode key={`f${f.id}`} folder={f} depth={depth + 1} />
-        ))}
-      {projects
-        .filter((p) => p.folderId === folder.id)
-        .sort(bySortOrder)
-        .map((p) => (
-          <ProjectRow key={`p${p.id}`} project={p} depth={depth + 1} />
-        ))}
+      {!collapsed && (
+        <>
+        {folders
+          .filter((f) => f.parentId === folder.id)
+          .map((f) => (
+            <FolderNode key={`f${f.id}`} folder={f} depth={depth + 1} />
+          ))}
+        {projects
+          .filter((p) => p.folderId === folder.id)
+          .sort(bySortOrder)
+          .map((p) => (
+            <ProjectRow key={`p${p.id}`} project={p} depth={depth + 1} />
+          ))}
+        </>
+      )}
       {draft?.parentId === folder.id && <DraftRow depth={depth + 1} />}
     </div>
   );
@@ -377,16 +407,16 @@ export function Sidebar() {
           <nav data-projects-panel className="flex-1 flex flex-col overflow-y-auto px-1 pb-2">
             <div ref={treeRef} className="flex flex-col">
               {draft?.parentId === null && <DraftRow depth={0} />}
-              {folders
-                .filter((f) => f.parentId === null)
-                .map((f) => (
-                  <FolderNode key={`f${f.id}`} folder={f} depth={0} />
-                ))}
               {projects
                 .filter((p) => p.folderId === null)
                 .sort(bySortOrder)
                 .map((p) => (
                   <ProjectRow key={`p${p.id}`} project={p} depth={0} />
+                ))}
+              {folders
+                .filter((f) => f.parentId === null)
+                .map((f) => (
+                  <FolderNode key={`f${f.id}`} folder={f} depth={0} />
                 ))}
               {!loading && folders.length === 0 && projects.length === 0 && !draft && (
                 <button

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
 import { preparePicture } from '../images';
-import { clampComplexity, DEFAULT_SEVERITY, rateTaskComplexity, SEVERITIES,type AiService, type Category, type Folder, type ModelFamily, type Project, type ProjectType, type ProjectCategory, type QueuedCount, type RefinedTopicResponse, type Task, type TerminalInfo, type TerminalModel, type Topic, type TopicDraft } from '../types';
+import { clampComplexity, DEFAULT_SEVERITY, rateTaskComplexity, SEVERITIES,type AiService, type Category, type Folder, type ModelFamily, type Project, type DisplayType, type ProjectCategory, type QueuedCount, type RefinedTopicResponse, type Task, type TerminalInfo, type TerminalModel, type Topic, type TopicDraft } from '../types';
 
 export interface Toast {
   id: number;
@@ -30,6 +30,11 @@ interface BishopState {
   /** Bottom terminal panel. Starts closed; `loadTree` opens it again after a reload if it was open and has a session to show. */
   terminalOpen: boolean;
   setTerminalOpen: (open: boolean) => void;
+  /** Set by a button that opens the Terminal: the visible terminal view takes focus once, then clears it. */
+  terminalWantsFocus: boolean;
+  /** Open the Terminal and focus it. For buttons only; opening it any other way leaves focus alone. */
+  launchTerminal: () => void;
+  clearTerminalFocus: () => void;
   /** Silent mode: when on, Bishop does not flash in the taskbar. Saved in localStorage. */
   silentMode: boolean;
   setSilentMode: (on: boolean) => void;
@@ -39,6 +44,9 @@ interface BishopState {
   /** Complexity delegation dialog, opened from the title bar. */
   delegationOpen: boolean;
   setDelegationOpen: (open: boolean) => void;
+  /** The task whose complexity picker is open, from a click on its complexity bubble in the topic view. Null: closed. */
+  complexityPickerTaskId: number | null;
+  openComplexityPicker: (taskId: number | null) => void;
   /** What new sessions run, task sessions included. A session already running keeps its CLI. */
   aiService: AiService;
   setAiService: (service: AiService) => void;
@@ -98,7 +106,7 @@ interface BishopState {
   setProjectTagline: (id: number, tagline: string | null) => Promise<void>;
   /** Saves the AI service on the project, with its model and reasoning level. Null: the CLI's own default. */
   setProjectTerminalChoice: (id: number, kind: AiService, model: string | null, effort: string | null) => Promise<void>;
-  setProjectType: (id: number, projectType: ProjectType) => Promise<void>;
+  setDisplayType: (id: number, displayType: DisplayType) => Promise<void>;
   /** Uploads (or replaces) a project's picture. The returned promise settles when done. */
   setProjectImage: (id: number, file: File) => Promise<void>;
   removeProjectImage: (id: number) => Promise<void>;
@@ -175,6 +183,8 @@ const now = () => new Date().toISOString();
 // Optimistically created rows get negative ids until the server responds.
 let tempId = -1;
 let toastId = 1;
+// Topics of projects we switched away from, so switching back doesn't start from an empty board.
+const topicCache = new Map<number, Topic[]>();
 // Optimistic requests still running; a background refresh then could undo them on screen.
 let inFlight = 0;
 // Counts optimistic edits, so a background refresh can tell its response was read before one of them.
@@ -382,8 +392,14 @@ export const useBishopStore = create<BishopState>((set, get) => {
       try {
         localStorage.setItem(TERMINAL_OPEN_KEY, open ? '1' : '0');
       } catch {}
-      set({ terminalOpen: open });
+      set({ terminalOpen: open, ...(open ? {} : { terminalWantsFocus: false }) });
     },
+    terminalWantsFocus: false,
+    launchTerminal: () => {
+      get().setTerminalOpen(true);
+      set({ terminalWantsFocus: true });
+    },
+    clearTerminalFocus: () => set({ terminalWantsFocus: false }),
     silentMode: readSilentMode(),
     setSilentMode: (on) => {
       try {
@@ -395,6 +411,8 @@ export const useBishopStore = create<BishopState>((set, get) => {
     setChartsOpen: (open) => set({ chartsOpen: open }),
     delegationOpen: false,
     setDelegationOpen: (open) => set({ delegationOpen: open }),
+    complexityPickerTaskId: null,
+    openComplexityPicker: (taskId) => set({ complexityPickerTaskId: taskId }),
     aiService: readAiService(),
     setAiService: (service) => {
       try {
@@ -429,7 +447,7 @@ export const useBishopStore = create<BishopState>((set, get) => {
       const pid = get().selectedProjectId;
       if (pid === null || taskId < 0) return;
       set({ workRequest: { projectId: pid, taskId }, openTopicId: null });
-      get().setTerminalOpen(true);
+      get().launchTerminal();
     },
     clearWorkRequest: () => set({ workRequest: null }),
 
@@ -443,7 +461,7 @@ export const useBishopStore = create<BishopState>((set, get) => {
         sessions: s.sessions?.map((t) => (t.id === sessionId ? { ...t, background: false } : t)) ?? null,
       }));
       if (get().selectedProjectId !== projectId) void get().selectProject(projectId);
-      get().setTerminalOpen(true);
+      get().launchTerminal();
     },
     clearReopenRequest: () => set({ reopenRequest: null }),
 
@@ -603,10 +621,10 @@ export const useBishopStore = create<BishopState>((set, get) => {
       );
     },
 
-    setProjectType: (id, projectType) =>
+    setDisplayType: (id, displayType) =>
       optimistic(
-        (s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, projectType } : p)) }),
-        () => api.updateProject(id, { projectType }),
+        (s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, displayType } : p)) }),
+        () => api.updateProject(id, { displayType }),
         (project, s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }),
       ),
 
@@ -669,18 +687,46 @@ export const useBishopStore = create<BishopState>((set, get) => {
     },
 
     deleteProject: async (id) => {
+      topicCache.delete(id);
       if (get().selectedProjectId === id) set({ selectedProjectId: null, topics: [], openTopicId: null });
       await optimistic((s) => ({ projects: s.projects.filter((p) => p.id !== id) }), () => api.deleteProject(id));
     },
 
     selectProject: async (id) => {
-      set({ selectedProjectId: id, topics: [], activeTaskIds: [], openTopicId: null, editingTagline: false });
+      const t0 = performance.now();
+      const log = (step: string) => console.debug(`[bishop:tab-switch] project ${id} ${step}: ${(performance.now() - t0).toFixed(1)} ms`);
+      // Remember the topics of the project we are leaving. Coming back shows them at once, then the fetch below corrects them.
+      // Without this the board empties first, so every card unmounts and mounts again: two full renders per switch.
+      const leaving = get().selectedProjectId;
+      if (leaving !== null && leaving !== id) {
+        const left = get().topics;
+        if (left.every((t) => t.id >= 0 && t.tasks.every((k) => k.id >= 0))) topicCache.set(leaving, left);
+      }
+      const cached = id === null ? undefined : topicCache.get(id);
+      const editsBefore = edits;
+      set({ selectedProjectId: id, topics: cached ?? [], activeTaskIds: [], openTopicId: null, editingTagline: false });
+      log(cached ? 'state reset (cached topics)' : 'state reset');
+      // Time until the browser has rendered and painted the reset state.
+      requestAnimationFrame(() => setTimeout(() => log('first paint after reset'), 0));
       writeLastProject(id);
       if (id === null) return;
-      api.categories(id).then((categories) => set((s) => ({ categories: { ...s.categories, [id]: categories } })), get().pushError);
+      api.categories(id).then((categories) => {
+        log('categories fetched');
+        set((s) => ({ categories: { ...s.categories, [id]: categories } }));
+      }, get().pushError);
       try {
         const topics = await api.listTopics(id);
-        if (get().selectedProjectId === id) set({ topics });
+        log(`topics fetched (${topics.length})`);
+        if (get().selectedProjectId === id) {
+          topicCache.set(id, topics);
+          // Same as the cached copy: keep it, so nothing re-renders.
+          // An edit made on the cached board meanwhile wins: the 3 second refresh picks up the rest.
+          if (edits === editsBefore && inFlight === 0 && JSON.stringify(topics) !== JSON.stringify(get().topics)) set({ topics });
+          log('topics set');
+          requestAnimationFrame(() => setTimeout(() => log('first paint after topics'), 0));
+        } else {
+          log('topics discarded (project changed)');
+        }
       } catch (e) {
         get().pushError(e);
       }
@@ -691,7 +737,7 @@ export const useBishopStore = create<BishopState>((set, get) => {
     createTopic: async (title, category) => {
       const pid = projectId();
       const id = tempId--;
-      const draft: Topic = { id, title, description: '', category, sortOrder: Number.MAX_SAFE_INTEGER, createdAt: now(), updatedAt: now(), archivedAt: null, sameSession: false, modelFamily: 'claude', modelOverride: null, effortOverride: null, tasks: [] };
+      const draft: Topic = { id, title, description: '', category, sortOrder: Number.MAX_SAFE_INTEGER, createdAt: now(), updatedAt: now(), archivedAt: null, sameSession: true, modelFamily: 'claude', modelOverride: null, effortOverride: null, tasks: [] };
       await optimistic(
         (s) => ({ topics: [...s.topics, draft] }),
         () => api.createTopic(pid, { title, category }),

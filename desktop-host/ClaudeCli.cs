@@ -182,8 +182,8 @@ public sealed class ClaudeCli(string? configuredPath, string? model, Antigravity
         You review an existing topic for a project management app to help refine it. A topic is a piece of work
         and its tasks are the checklist for it. Review the topic's title, description and tasks for missing
         details. Decide whether finishing every task would accomplish the topic, identify what is missing,
-        identify any work that requires user action, and ask clarifying questions to fill in what is missing
-        before work starts.
+        identify any work that requires user action, and, only when the tasks are not enough, ask clarifying
+        questions to fill in what is missing before work starts.
         The input on stdin has the project name, the project's existing topics, the topic being reviewed, and
         any user answers or clarifications provided so far.
         If you have file tools, you are in the project's folder: read what you need to judge the work, but
@@ -200,11 +200,11 @@ public sealed class ClaudeCli(string? configuredPath, string? model, Antigravity
         - Work that an existing topic already covers isn't missing.
         - missing: when not sufficient, up to 8 short imperative tasks that would close the gaps, in the same
           style as the topic's tasks. Otherwise an empty array.
-        - questions: up to 5 short clarifying questions to ask the user to fill in what is missing, resolve
-          ambiguities, or clarify decisions needed before the work can start, most important first. Don't ask
-          what the project's files, project instructions or existing answers already settle. Write each as
-          one plain question addressed to the user. If the topic is clear and needs no further input, use an
-          empty array.
+        - questions: when sufficient is true, always an empty array. Otherwise up to 5 short clarifying
+          questions to ask the user to fill in what is missing, resolve ambiguities, or clarify decisions
+          needed before the work can start, most important first. Don't ask what the project's files, project
+          instructions or existing answers already settle. Write each as one plain question addressed to the
+          user. If the topic needs no further input, use an empty array.
         - userActions: up to 8 short items identifying work that requires user action (such as creating art assets,
           playtesting, testing on device, manual configuration or third-party signups) listed separately as prerequisites
           that must be done before the tasks can be done. Distinguish work that a human must do from work an agent or developer can
@@ -690,11 +690,14 @@ public sealed class ClaudeCli(string? configuredPath, string? model, Antigravity
         if (userActions.Count == 0) userActions = StringList(obj, "user_actions");
 
         // Listed gaps outweigh the flag, so the two can't disagree in the UI.
+        var sufficient = verdict.GetBoolean() && missing.Count == 0;
+        // A sufficient topic needs no input from the user, so drop any questions.
+        var questions = sufficient ? [] : StringList(obj, "questions").Take(5).ToList();
         return new TopicResearch(
-            verdict.GetBoolean() && missing.Count == 0,
+            sufficient,
             summary,
             missing.Take(8).ToList(),
-            StringList(obj, "questions").Take(5).ToList(),
+            questions,
             userActions.Take(8).ToList());
     }
 
@@ -856,8 +859,8 @@ public sealed class ClaudeCli(string? configuredPath, string? model, Antigravity
             }
         }
 
-        // Voice topics always start in Soon, whatever the urgency in the note. The API swaps in another category if the project removed it.
-        return new TopicDraft(title, Str("description"), "SOON", tasks.Take(20).ToList(), complexities.Take(20).ToList(), userActions.Take(20).ToList());
+        // Claude doesn't pick the category, whatever the urgency in the note. The API sets it to the project's first category.
+        return new TopicDraft(title, Str("description"), "", tasks.Take(20).ToList(), complexities.Take(20).ToList(), userActions.Take(20).ToList());
     }
 
     private static string? FirstLine(string s) =>

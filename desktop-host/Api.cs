@@ -107,7 +107,7 @@ public static class Api
             var folderPath = ProjectFolders.Normalize(body.String("folderPath"));
             var tagline = body.String("tagline");
             ProjectFolders.Link(folderPath, name, tagline);
-            return storage.CreateProject(name, body.Long("folderId").Value, tagline, folderPath, body.String("projectType"));
+            return storage.CreateProject(name, body.Long("folderId").Value, tagline, folderPath, body.String("displayType"));
         });
         api.MapPatch("/projects/{id:long}", async (long id, HttpContext ctx) =>
         {
@@ -123,12 +123,12 @@ public static class Api
             return storage.UpdateProject(id, body.String("name"), body.Long("folderId"), body.OptionalString("tagline"), folderPath,
                 body.OptionalString("icon"), body.OptionalString("iconColor"),
                 body.OptionalString("claudeModel"), body.OptionalString("claudeEffort"),
-                body.OptionalString("antigravityModel"), body.OptionalString("antigravityEffort"), body.OptionalString("aiService"), body.String("projectType"));
+                body.OptionalString("antigravityModel"), body.OptionalString("antigravityEffort"), body.OptionalString("aiService"), body.String("displayType"));
         });
 
         // ---- terminal: claude, agy or PowerShell in a pseudo-console, streamed over a WebSocket
         api.MapGet("/terminal/sessions", (long? projectId) => terminals.List(projectId));
-        // Saved sessions of a project from the past `days` days (default 7, 1 to 90), most recent activity first.
+        // Saved sessions of a project from this run that were active in the past `days` days (default 7, 1 to 90), most recent activity first.
         api.MapGet("/projects/{pid:long}/sessions", (long pid, int? days) =>
             storage.ListRecentSessions(pid, Math.Clamp(days ?? 7, 1, 90)));
         api.MapGet("/terminal/models", async (string? kind, CancellationToken ct) => kind switch

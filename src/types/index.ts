@@ -42,11 +42,11 @@ export interface Project {
   /** The AI service saved on this project. Null: nothing saved, so it follows the last one chosen. */
   aiService: AiService | null;
   /** agent: the full layout. personal: only categories and simple tasks. */
-  projectType: ProjectType;
+  displayType: DisplayType;
 }
 
-export type ProjectType = 'agent' | 'personal';
-export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = { agent: 'Agent', personal: 'Personal' };
+export type DisplayType = 'agent' | 'personal';
+export const DISPLAY_TYPE_LABELS: Record<DisplayType, string> = { agent: 'Full', personal: 'Compact' };
 
 export interface FolderStatus {
   path: string;
